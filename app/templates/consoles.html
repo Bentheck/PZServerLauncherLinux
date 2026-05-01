@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}Consoles{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Live Console Board</p>
+        <h1>Consoles</h1>
+        <p class="lede">{{ consoles_page_summary }}</p>
+    </div>
+    <div class="hero-pills">
+        <span class="pill">{{ consoles_visible_summary }}</span>
+        <span class="pill">{{ consoles_running_summary }}</span>
+        <span class="pill">{{ consoles_auto_refresh_summary }}</span>
+    </div>
+</section>
+
+<section class="console-layout">
+    <aside class="panel console-sidebar">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Console Picker</p>
+                <h2>Target Slot</h2>
+            </div>
+        </div>
+        <p class="empty">{{ consoles_picker_summary }}</p>
+        <div class="console-slot-grid">
+            {% for slot in console_slots %}
+            <form method="post" action="/consoles/slots/select">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="slot_number" value="{{ slot.slot_number }}">
+                <button class="button console-slot-button{% if slot.is_selected %} console-slot-button-active{% endif %}" type="submit">
+                    <strong>{{ slot.slot_label }}</strong>
+                    <span>{{ slot.profile_display_name }}</span>
+                    <small>{{ slot.runtime_state }}</small>
+                </button>
+            </form>
+            {% endfor %}
+        </div>
+
+        <div class="console-selection-card">
+            <p class="eyebrow">Selection</p>
+            <p>{{ console_selection_summary }}</p>
+        </div>
+
+        {% if can_manage_console %}
+        <div class="action-row">
+            <form method="post" action="/consoles/slots/clear">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="button button-subtle" type="submit">Clear Selected Slot</button>
+            </form>
+            <a class="button button-subtle" href="/consoles">Reload Board</a>
+        </div>
+        {% endif %}
+
+        <div class="card-stack">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Servers</p>
+                    <h2>Roster</h2>
+                </div>
+            </div>
+            {% if console_has_profiles %}
+                {% for item in console_picker_items %}
+                <article class="list-card static">
+                    <strong>{{ item.display_name }}</strong>
+                    <span>{{ item.branch }} | runtime {{ item.runtime_state }}</span>
+                    <small>{{ item.latest_log_line }}</small>
+                    {% if can_manage_console %}
+                    <form method="post" action="/consoles/slots/assign">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="profile_id" value="{{ item.id }}">
+                        <button class="button button-subtle" type="submit">{{ item.assignment_label }}</button>
+                    </form>
+                    {% endif %}
+                </article>
+                {% endfor %}
+            {% else %}
+            <p class="empty">No managed servers are available yet. Create or import one, then pin its console here.</p>
+            {% endif %}
+        </div>
+    </aside>
+
+    <section class="console-board">
+        <div class="panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Board</p>
+                    <h2>Watch The Active Servers Without Drilling Through Profile Pages</h2>
+                </div>
+            </div>
+            <p class="empty">{{ consoles_auto_refresh_summary }}</p>
+        </div>
+
+        <div class="console-board-grid">
+            {% for slot in console_slots %}
+            <article class="panel console-card{% if slot.is_selected %} console-card-selected{% endif %}" {% if slot.live_url %}data-console-live-root data-live-url="{{ slot.live_url }}"{% endif %}>
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">{{ slot.slot_label }}</p>
+                        <h2>{{ slot.profile_display_name }}</h2>
+                    </div>
+                    {% if can_manage_console %}
+                    <form method="post" action="/consoles/slots/select">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="slot_number" value="{{ slot.slot_number }}">
+                        <button class="button button-subtle" type="submit">Target Slot</button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                <div class="detail-grid">
+                    <div><span class="meta-label">Branch</span><code>{{ slot.branch }}</code></div>
+                    <div><span class="meta-label">Runtime</span><code data-console-state>{{ slot.runtime_state }}</code></div>
+                    <div><span class="meta-label">Latest Line</span><code data-console-latest>{{ slot.latest_log_line or "Awaiting output" }}</code></div>
+                    {% if slot.profile %}
+                    <div><span class="meta-label">Workspace</span><code>/profiles/{{ slot.profile.id }}/logs</code></div>
+                    {% else %}
+                    <div><span class="meta-label">Workspace</span><code>Assign a server first</code></div>
+                    {% endif %}
+                </div>
+
+                <p class="empty" data-console-status>{{ slot.status_summary }}</p>
+                <p class="empty" data-console-activity>{{ slot.activity_summary }}</p>
+                <pre class="log-view console-log-view" data-console-log>{{ slot.log_text }}</pre>
+
+                {% if slot.profile and can_manage_console %}
+                <div class="action-row">
+                    <form method="post" action="/profiles/{{ slot.profile.id }}/runtime/start">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="next_url" value="/consoles">
+                        <button class="button" type="submit">Start</button>
+                    </form>
+                    <form method="post" action="/profiles/{{ slot.profile.id }}/runtime/stop">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="next_url" value="/consoles">
+                        <button class="button button-subtle" type="submit">Stop</button>
+                    </form>
+                    <form method="post" action="/profiles/{{ slot.profile.id }}/runtime/restart">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="next_url" value="/consoles">
+                        <button class="button button-subtle" type="submit">Restart</button>
+                    </form>
+                    <a class="button button-subtle" href="/profiles/{{ slot.profile.id }}/logs">Open Profile Logs</a>
+                </div>
+
+                <div class="action-row" data-console-command-group {% if not slot.can_send_commands %}data-disabled="true"{% endif %}>
+                    {% for command_text, command_label in quick_runtime_commands %}
+                    <form method="post" action="/profiles/{{ slot.profile.id }}/runtime/command">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="next_url" value="/consoles">
+                        <input type="hidden" name="command_text" value="{{ command_text }}">
+                        <button class="button button-subtle" type="submit" {% if not slot.can_send_commands %}disabled{% endif %}>{{ command_label }}</button>
+                    </form>
+                    {% endfor %}
+                </div>
+
+                <form method="post" action="/profiles/{{ slot.profile.id }}/runtime/command" class="inline-form" data-console-command-group {% if not slot.can_send_commands %}data-disabled="true"{% endif %}>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="next_url" value="/consoles">
+                    <input name="command_text" placeholder="save / players / custom console command" {% if not slot.can_send_commands %}disabled{% endif %}>
+                    <button class="button button-subtle" type="submit" {% if not slot.can_send_commands %}disabled{% endif %}>Send</button>
+                </form>
+                {% else %}
+                <p class="empty">Pin a managed profile into this slot to unlock live runtime controls and command sending.</p>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+    const slots = Array.from(document.querySelectorAll("[data-console-live-root]"));
+    if (!slots.length) {
+        return;
+    }
+
+    const setText = (root, selector, value) => {
+        const node = root.querySelector(selector);
+        if (node) {
+            node.textContent = value;
+        }
+    };
+
+    const setCommandDisabled = (root, disabled) => {
+        root.querySelectorAll("[data-console-command-group]").forEach((group) => {
+            group.querySelectorAll("input, button").forEach((node) => {
+                if (node instanceof HTMLInputElement || node instanceof HTMLButtonElement) {
+                    node.disabled = disabled;
+                }
+            });
+        });
+    };
+
+    const refreshSlot = async (root) => {
+        const liveUrl = root.dataset.liveUrl;
+        if (!liveUrl) {
+            return;
+        }
+
+        try {
+            const response = await fetch(liveUrl, {
+                headers: { Accept: "application/json" },
+                credentials: "same-origin",
+                cache: "no-store",
+            });
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            const runtime = payload.runtime || {};
+            const diagnostic = payload.diagnostic || {};
+            setText(root, "[data-console-state]", runtime.state || "unknown");
+            setText(root, "[data-console-latest]", runtime.latest_log_line || "Awaiting output");
+            setText(root, "[data-console-status]", diagnostic.headline || diagnostic.detail || "No status available.");
+            setText(root, "[data-console-activity]", runtime.last_exit_reason || diagnostic.recommended_action || "Live runtime output will appear here.");
+            const logNode = root.querySelector("[data-console-log]");
+            if (logNode) {
+                const lines = payload.logs || [];
+                logNode.textContent = lines.length ? lines.join("\n") : "No output yet.";
+                logNode.scrollTop = logNode.scrollHeight;
+            }
+            setCommandDisabled(root, runtime.state !== "running");
+        } catch (_error) {
+        }
+    };
+
+    const refreshAll = async () => {
+        await Promise.all(slots.map((root) => refreshSlot(root)));
+    };
+
+    refreshAll();
+    window.setInterval(refreshAll, 3000);
+})();
+</script>
+{% endblock %}

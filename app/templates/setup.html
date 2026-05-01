@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Owner Setup{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">First Run</p>
+        <h1>Bootstrap the Owner Account</h1>
+        <p class="lede">This is the first trusted operator for the VPS control plane. Once created, normal access moves to the login screen.</p>
+    </div>
+</section>
+
+<section class="panel form-panel">
+    <form method="post" class="grid-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+            <span>Username</span>
+            <input name="username" autocomplete="username" required>
+        </label>
+        <label>
+            <span>Display Name</span>
+            <input name="display_name" required>
+        </label>
+        <label>
+            <span>Password</span>
+            <input name="password" type="password" autocomplete="new-password" required>
+        </label>
+        <button class="button" type="submit">Create Owner Account</button>
+    </form>
+</section>
+{% endblock %}

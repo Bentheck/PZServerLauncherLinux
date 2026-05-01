@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Remote Access{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Public Access</p>
+        <h1>Remote Access</h1>
+        <p class="lede">{{ remote_recommendation }}</p>
+    </div>
+</section>
+
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Endpoint Mode</span>
+        <strong class="stat-value">{{ remote_endpoint_mode }}</strong>
+        <p>{{ remote_proxy_summary }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Recommended URL</span>
+        <strong class="stat-value">{{ remote_recommended_url }}</strong>
+        <p>{{ remote_tls_summary }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">App Listener</span>
+        <strong class="stat-value">{{ remote_listener }}</strong>
+        <p>Keep the app on loopback and let the reverse proxy own public exposure.</p>
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Settings</p>
+                <h2>Public Endpoint Strategy</h2>
+            </div>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+                <span>Public Base URL</span>
+                <input name="public_base_url" value="{{ host_settings.public_base_url or '' }}" placeholder="https://example.com or http://203.0.113.10">
+            </label>
+            <label>
+                <span>Access Mode</span>
+                <select name="access_mode">
+                    <option value="domain" {% if host_settings.access_mode == "domain" %}selected{% endif %}>domain</option>
+                    <option value="ip" {% if host_settings.access_mode == "ip" %}selected{% endif %}>ip-only</option>
+                    <option value="private" {% if host_settings.access_mode == "private" %}selected{% endif %}>private</option>
+                </select>
+            </label>
+            <label>
+                <span>TLS Mode</span>
+                <select name="tls_mode">
+                    <option value="proxy-letsencrypt" {% if host_settings.tls_mode == "proxy-letsencrypt" %}selected{% endif %}>Let's Encrypt (domain)</option>
+                    <option value="proxy-http-ip" {% if host_settings.tls_mode == "proxy-http-ip" %}selected{% endif %}>HTTP over IP</option>
+                    <option value="proxy-selfsigned-ip" {% if host_settings.tls_mode == "proxy-selfsigned-ip" %}selected{% endif %}>Self-signed HTTPS over IP</option>
+                </select>
+            </label>
+            <label>
+                <span>Reverse Proxy</span>
+                <select name="reverse_proxy">
+                    <option value="nginx" {% if host_settings.reverse_proxy == "nginx" %}selected{% endif %}>nginx</option>
+                    <option value="caddy" {% if host_settings.reverse_proxy == "caddy" %}selected{% endif %}>caddy</option>
+                </select>
+            </label>
+            <button class="button" type="submit">Save Remote Settings</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Notes</p>
+                <h2>Deployment Posture</h2>
+            </div>
+        </div>
+        <div class="detail-grid">
+            <div><span class="meta-label">App Listener</span><code>{{ remote_listener }}</code></div>
+            <div><span class="meta-label">Public URL</span><code>{{ host_settings.public_base_url or "Not set yet" }}</code></div>
+            <div><span class="meta-label">Recommended</span><code>domain + Let's Encrypt</code></div>
+            <div><span class="meta-label">Fallback</span><code>raw IP + HTTP or self-signed HTTPS</code></div>
+        </div>
+        <div class="card-stack">
+            {% for item in remote_checklist %}
+            <div class="list-card static">
+                <strong>{{ item.status }}</strong>
+                <small>{{ item.message }}</small>
+            </div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

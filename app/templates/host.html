@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Host{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Host Control</p>
+        <h1>Host Settings</h1>
+        <p class="lede">{{ host_next_step_summary }}</p>
+    </div>
+    <div class="hero-pills">
+        <span class="pill">{{ host_startup_label }}</span>
+        <span class="pill">{{ running_profile_count }} running</span>
+        <span class="pill">{{ managed_profile_count }} managed</span>
+    </div>
+</section>
+
+<section class="dashboard-grid">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">App Control Console</p>
+                <h2>Machine-Level Posture</h2>
+            </div>
+        </div>
+        <p class="lede">{{ host_lifecycle_summary }}</p>
+        <article class="diagnostic-card diagnostic-card-warning list-card static">
+            <strong>Risk</strong>
+            <small>{{ host_risk_summary }}</small>
+        </article>
+        <article class="callout-card">
+            <p class="eyebrow">Operator Summary</p>
+            <p>{{ host_operator_summary }}</p>
+            <p class="empty">{{ host_shutdown_summary }}</p>
+        </article>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Operations Rail</p>
+                <h2>Lifecycle Actions</h2>
+            </div>
+        </div>
+
+        <div class="card-stack">
+            <article class="list-card static">
+                <strong>Run Startup Roster</strong>
+                <small>Start every profile marked to start with host, while leaving already-active servers alone.</small>
+                <form method="post" class="action-row">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="run-startup-roster">
+                    <button class="button button-subtle" type="submit">Run Startup Roster</button>
+                </form>
+            </article>
+
+            <article class="list-card static">
+                <strong>Stop All Managed Servers</strong>
+                <small>Use a coordinated stop for the whole roster before maintenance, profile retirement, or launcher-service work.</small>
+                <form method="post" class="grid-form compact-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="stop-all">
+                    <label>
+                        <span>Type STOP ALL to confirm</span>
+                        <input name="confirm_stop_all" placeholder="STOP ALL">
+                    </label>
+                    <button class="button button-danger" type="submit">Stop Managed Servers</button>
+                </form>
+            </article>
+
+            <article class="list-card static">
+                <strong>Stage Runtime Stop</strong>
+                <small>Prepare the launcher-service maintenance flow here, then run the systemd command from the host shell when you are ready.</small>
+                <form method="post" class="grid-form compact-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="stage-runtime-stop">
+                    <label class="checkbox-row">
+                        <input name="stop_servers_first" type="checkbox">
+                        <span>Stop managed servers before staging the runtime stop</span>
+                    </label>
+                    <button class="button button-subtle" type="submit">Stage Runtime Stop</button>
+                </form>
+            </article>
+        </div>
+
+        {% if host_has_shutdown_request %}
+        <article class="callout-card pending-callout">
+            <p class="eyebrow">Pending Runtime Maintenance</p>
+            <p>Staged by {{ host_shutdown_request.requested_by }} on {{ host_shutdown_request.requested_at_label }}.</p>
+            <div class="detail-grid">
+                <div><span class="meta-label">Stop Command</span><code>{{ host_shutdown_request.command }}</code></div>
+                <div><span class="meta-label">Restart Command</span><code>{{ host_shutdown_request.restart_command }}</code></div>
+            </div>
+            <p class="empty">
+                {% if host_shutdown_request.stop_servers_first %}
+                {{ host_shutdown_request.stopped_profile_count }} managed profile(s) were stopped before the request was staged.
+                {% else %}
+                No server stop was requested automatically when the maintenance notice was staged.
+                {% endif %}
+            </p>
+            <form method="post" class="action-row">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="action" value="clear-runtime-stop-request">
+                <button class="button button-subtle" type="submit">Clear Staged Request</button>
+            </form>
+        </article>
+        {% else %}
+        <article class="callout-card">
+            <p class="eyebrow">Service Commands</p>
+            <div class="detail-grid">
+                <div><span class="meta-label">Stop</span><code>{{ host_service_stop_command }}</code></div>
+                <div><span class="meta-label">Restart</span><code>{{ host_service_restart_command }}</code></div>
+            </div>
+            <p class="empty">{{ host_action_summary }}</p>
+        </article>
+        {% endif %}
+    </article>
+</section>
+
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Lifecycle</span>
+        <strong class="stat-value">{{ host_status_summary }}</strong>
+        <p>{{ host_lifecycle_summary }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Startup Roster</span>
+        <strong class="stat-value">{{ startup_profile_count }}</strong>
+        <p>{{ host_startup_coverage_summary }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Recovery</span>
+        <strong class="stat-value">{{ recovery_ready_profile_count }}</strong>
+        <p>{{ host_recovery_coverage_summary }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Live Runtime</span>
+        <strong class="stat-value">{{ running_profile_count }}</strong>
+        <p>{{ host_runtime_coverage_summary }}</p>
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Settings</p>
+                <h2>Host and Proxy Posture</h2>
+            </div>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="action" value="save">
+            <label>
+                <span>Public Base URL</span>
+                <input name="public_base_url" value="{{ host_settings.public_base_url or '' }}" placeholder="https://example.com or http://SERVER_IP">
+            </label>
+            <label>
+                <span>Access Mode</span>
+                <select name="access_mode">
+                    <option value="domain" {% if host_settings.access_mode == "domain" %}selected{% endif %}>domain</option>
+                    <option value="ip" {% if host_settings.access_mode == "ip" %}selected{% endif %}>ip-only</option>
+                    <option value="private" {% if host_settings.access_mode == "private" %}selected{% endif %}>private</option>
+                </select>
+            </label>
+            <label>
+                <span>TLS Mode</span>
+                <select name="tls_mode">
+                    <option value="proxy-letsencrypt" {% if host_settings.tls_mode == "proxy-letsencrypt" %}selected{% endif %}>Let's Encrypt (domain)</option>
+                    <option value="proxy-http-ip" {% if host_settings.tls_mode == "proxy-http-ip" %}selected{% endif %}>HTTP over IP</option>
+                    <option value="proxy-selfsigned-ip" {% if host_settings.tls_mode == "proxy-selfsigned-ip" %}selected{% endif %}>Self-signed HTTPS over IP</option>
+                </select>
+            </label>
+            <label>
+                <span>Reverse Proxy</span>
+                <select name="reverse_proxy">
+                    <option value="nginx" {% if host_settings.reverse_proxy == "nginx" %}selected{% endif %}>nginx</option>
+                    <option value="caddy" {% if host_settings.reverse_proxy == "caddy" %}selected{% endif %}>caddy</option>
+                </select>
+            </label>
+            <label>
+                <span>Service User</span>
+                <input name="server_user" value="{{ host_settings.server_user }}">
+            </label>
+            <p class="empty">{{ host_service_user_summary }}</p>
+            <button class="button" type="submit">Save Host Settings</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">App Posture</p>
+                <h2>Host Snapshot</h2>
+            </div>
+        </div>
+        <div class="detail-grid">
+            <div><span class="meta-label">Bind Host</span><code>{{ host_settings.bind_host }}</code></div>
+            <div><span class="meta-label">Bind Port</span><code>{{ host_settings.bind_port }}</code></div>
+            <div><span class="meta-label">Data Root</span><code>{{ host_settings.data_root }}</code></div>
+            <div><span class="meta-label">Logs Root</span><code>{{ host_settings.logs_root }}</code></div>
+            <div><span class="meta-label">Managed Root</span><code>{{ host_default_managed_root }}</code></div>
+            <div><span class="meta-label">Public Exposure</span><code>{{ host_exposure_summary }}</code></div>
+        </div>
+        <p class="empty">{{ host_fleet_summary }}</p>
+        <p class="empty">{{ host_security_summary }}</p>
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Managed Profiles</p>
+                <h2>{{ host_startup_fleet_summary }}</h2>
+            </div>
+        </div>
+        {% if managed_rows %}
+        <div class="card-stack">
+            {% for item in managed_rows %}
+            <div class="list-card static">
+                <strong>{{ item.display_name }}</strong>
+                <span>{{ item.branch }} | runtime {{ item.runtime_state }} | ports {{ item.ports }}</span>
+                <small>Start with host: {{ "yes" if item.start_with_host else "no" }} | auto-restart: {{ "yes" if item.auto_restart_on_crash else "no" }} | backups enabled: {{ "yes" if item.backup_enabled else "no" }} | restore points: {{ item.backup_count }} | install detected: {{ "yes" if item.install_detected else "no" }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">No managed profiles exist yet.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Checklist</p>
+                <h2>Host Operator Guidance</h2>
+            </div>
+        </div>
+        <div class="card-stack">
+            {% for item in host_checklist %}
+            <div class="list-card static">
+                <strong>{{ item.status }}</strong>
+                <small>{{ item.message }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        <article class="callout-card">
+            <p class="eyebrow">Recovery Guidance</p>
+            <p>{{ host_recovery_summary }}</p>
+        </article>
+    </article>
+</section>
+{% endblock %}

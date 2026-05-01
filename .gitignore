@@ -1,0 +1,20 @@
+# Codex local artifacts
+.codex/
+.codex-build/
+.codex*.log
+
+# Local runtime and SDK bootstraps often created during Codex-driven builds
+.dotnet/
+.dotnet-build/
+.dotnet-home/
+.dotnet-local/
+.test-home/
+
+# Python local environments and caches
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Local runtime data for Windows/dev runs
+.localdata/

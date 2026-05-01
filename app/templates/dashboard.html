@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Control Plane</p>
+        <h1>Project Zomboid VPS Dashboard</h1>
+        <p class="lede">Use the dashboard for a quick read on host status, import discovery, and what needs attention next across the managed fleet.</p>
+    </div>
+    <div class="hero-pills">
+        <span class="pill">{{ profile_count }} profiles</span>
+        <span class="pill">{{ running_count }} running</span>
+        <span class="pill">{{ import_candidate_count }} imports</span>
+    </div>
+</section>
+
+<section class="dashboard-grid">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Quick Start</p>
+                <h2>{{ setup_mode_headline }}</h2>
+            </div>
+        </div>
+        <p class="lede">{{ setup_mode_summary }}</p>
+        <div class="action-row">
+            <a class="button" href="{{ setup_primary_action_href }}">{{ setup_primary_action_label }}</a>
+            <form method="post" action="/profiles/imports/scan">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next_url" value="/dashboard">
+                <button class="button button-subtle" type="submit">{{ setup_secondary_action_label }}</button>
+            </form>
+            <a class="button button-subtle" href="/profiles">Open Profiles</a>
+            <a class="button button-subtle" href="/consoles">Open Consoles</a>
+        </div>
+
+        <article class="callout-card">
+            <p class="eyebrow">Current Focus</p>
+            <p>{{ current_focus_summary }}</p>
+            <p class="empty">{{ current_focus_hint }}</p>
+        </article>
+
+        <ol class="step-list">
+            {% for item in dashboard_steps %}
+            <li>{{ item }}</li>
+            {% endfor %}
+        </ol>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Fleet Status</p>
+                <h2>What Needs Attention Next</h2>
+            </div>
+            <span class="pill">Servers: {{ profile_count }}</span>
+        </div>
+        <p class="empty">{{ fleet_risk_summary }}</p>
+        <div class="stats-grid dashboard-stats-grid">
+            <article class="list-card static stat-mini-card">
+                <span class="stat-label">Installed</span>
+                <strong class="stat-value">{{ installed_profile_count }}</strong>
+            </article>
+            <article class="list-card static stat-mini-card">
+                <span class="stat-label">Running</span>
+                <strong class="stat-value">{{ running_count }}</strong>
+            </article>
+            <article class="list-card static stat-mini-card">
+                <span class="stat-label">Launch Ready</span>
+                <strong class="stat-value">{{ launch_ready_count }}</strong>
+            </article>
+            <article class="list-card static stat-mini-card">
+                <span class="stat-label">Recovery Ready</span>
+                <strong class="stat-value">{{ recovery_ready_count }}</strong>
+            </article>
+        </div>
+        <article class="callout-card">
+            <p class="eyebrow">Next Action</p>
+            <p>{{ next_step_summary }}</p>
+            <p class="empty">{{ fleet_summary }}</p>
+        </article>
+    </article>
+</section>
+
+<section class="dashboard-grid">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">App Snapshot</p>
+                <h2>Host and Runtime Posture</h2>
+            </div>
+            <a class="button button-subtle" href="/host">Open Host</a>
+        </div>
+        <p class="lede">{{ app_workspace_summary }}</p>
+        <div class="detail-grid">
+            <div class="list-card static">
+                <span class="stat-label">Consoles</span>
+                <p>{{ consoles_workspace_summary }}</p>
+            </div>
+            <div class="list-card static">
+                <span class="stat-label">Imports</span>
+                <p>{{ import_summary }}</p>
+            </div>
+        </div>
+    </article>
+
+    <article class="panel" id="import-intake">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Import Intake</p>
+                <h2>{{ import_summary }}</h2>
+            </div>
+            <form method="post" action="/profiles/imports/scan">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next_url" value="/dashboard">
+                <button class="button button-subtle" type="submit">Scan Again</button>
+            </form>
+        </div>
+
+        {% if import_candidates %}
+        <div class="card-stack">
+            {% for candidate in import_candidates %}
+            <article class="list-card static import-card">
+                <div class="import-card-header">
+                    <div>
+                        <strong>{{ candidate.display_name }}</strong>
+                        <span>{{ candidate.server_name }} &middot; {{ candidate.branch }}</span>
+                    </div>
+                    <div class="import-card-actions">
+                        {% if candidate.matching_profile_id %}
+                        <a class="button button-subtle" href="/profiles/{{ candidate.matching_profile_id }}/overview">Open Profile</a>
+                        {% endif %}
+                        {% if can_manage_profiles %}
+                        <form method="post" action="/profiles/imports/{{ candidate.candidate_id }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="next_url" value="/dashboard">
+                            <button class="button{% if candidate.is_already_imported or not candidate.can_import %} button-subtle{% endif %}" type="submit" {% if candidate.is_already_imported or not candidate.can_import %}disabled{% endif %}>
+                                {% if candidate.is_already_imported %}Imported{% else %}Import{% endif %}
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="import-pill-row">
+                    <span class="pill">{{ candidate.workshop_ids|length }} workshop</span>
+                    <span class="pill">{{ candidate.mod_ids|length }} mods</span>
+                    <span class="pill">{{ candidate.map_ids|length }} maps</span>
+                    <span class="pill">{{ candidate.default_port }}/{{ candidate.udp_port }}</span>
+                    {% if candidate.is_already_imported %}
+                    <span class="pill">Already managed</span>
+                    {% elif not candidate.can_import %}
+                    <span class="pill">Blocked</span>
+                    {% else %}
+                    <span class="pill">Ready</span>
+                    {% endif %}
+                </div>
+
+                <small><strong>Cache:</strong> {{ candidate.cache_directory }}</small>
+                <small><strong>Install:</strong> {{ candidate.install_directory or "Managed install folder will be used until you point the profile at the right server path." }}</small>
+
+                {% if candidate.diagnostics %}
+                <ul class="import-diagnostics">
+                    {% for item in candidate.diagnostics %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <article class="callout-card">
+            <p>No local server candidates are loaded yet. Run a scan when you want the dashboard to surface existing Project Zomboid footprints on this machine.</p>
+        </article>
+        {% endif %}
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Profiles</p>
+                <h2>Fleet Snapshot</h2>
+            </div>
+            <a class="button button-subtle" href="/profiles">Open Profiles</a>
+        </div>
+        {% if profiles %}
+        <div class="card-stack">
+            {% for profile in profiles %}
+            <a class="list-card" href="/profiles/{{ profile.id }}/overview">
+                <strong>{{ profile.display_name }}</strong>
+                <span>{{ profile.server_name }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">Create or import the first profile to unlock the full server workspace.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Recent Activity</p>
+                <h2>{{ recent_job_summary }}</h2>
+            </div>
+        </div>
+        {% if jobs %}
+        <div class="card-stack">
+            {% for job in jobs %}
+            <div class="list-card static job-card job-tone-{{ job.status_tone }}{% if job.is_active %} job-card-active{% endif %}">
+                <strong>{{ job.summary }}</strong>
+                <span>{{ job.profile_label }} | {{ job.status }} | {{ job.progress_percent }}%</span>
+                <div class="job-progress" aria-hidden="true">
+                    <span class="job-progress-fill job-progress-fill-{{ job.status_tone }}" style="width: {{ job.progress_percent }}%"></span>
+                </div>
+                <small>{{ job.detail }}</small>
+                <small>Created {{ job.created_at_label }}</small>
+                <small>Updated {{ job.updated_at_label }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <article class="callout-card">
+            <p>No recent host jobs are recorded yet. Start, stop, install, update, back up, or import a server and the latest work will show up here.</p>
+        </article>
+        {% endif %}
+    </article>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Audit</p>
+            <h2>Recent Audit Entries</h2>
+        </div>
+    </div>
+    {% if audits %}
+    <div class="table-shell">
+        <table>
+            <thead>
+                <tr>
+                    <th>Event</th>
+                    <th>Actor</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in audits %}
+                <tr>
+                    <td>{{ item.event_type }}</td>
+                    <td>{{ item.actor_label }}</td>
+                    <td>{{ item.message }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="empty">Audit activity will appear here as profiles, users, and host settings change.</p>
+    {% endif %}
+</section>
+{% endblock %}

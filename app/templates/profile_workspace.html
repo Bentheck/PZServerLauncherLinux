@@ -1,0 +1,2173 @@
+{% extends "base.html" %}
+
+{% block title %}{{ profile.display_name }}{% endblock %}
+
+{% block content %}
+<div data-profile-live-root data-live-url="{{ profile_live_api_url }}" data-profile-id="{{ profile.id }}" hidden></div>
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Profile</p>
+        <h1>{{ profile.display_name }}</h1>
+        <p class="lede">{{ profile.server_name }} | <span data-runtime-state>{{ runtime_snapshot.state }}</span> | {{ profile.branch }}</p>
+    </div>
+    <div class="hero-pills">
+        <span class="pill">{{ profile.default_port }}/{{ profile.udp_port }}</span>
+        <span class="pill">{{ profile.preferred_memory_gb }} GB</span>
+        <span class="pill" data-runtime-latest>{{ runtime_snapshot.latest_log_line or "Awaiting activity" }}</span>
+    </div>
+</section>
+
+<nav class="subnav">
+    {% for tab_id, tab_label in tabs %}
+    <a class="{% if active_page == tab_id %}active{% endif %}" href="/profiles/{{ profile.id }}/{{ tab_id }}">{{ tab_label }}</a>
+    {% endfor %}
+</nav>
+
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Runtime</span>
+        <strong class="stat-value" data-runtime-state>{{ runtime_snapshot.state }}</strong>
+        <p data-runtime-reason>{{ runtime_snapshot.last_exit_reason or runtime_diagnostic.detail or "The process manager is ready." }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Install</span>
+        <strong class="stat-value" data-launch-plan-state>{{ launch_plan_live.state_label }}</strong>
+        <p data-launch-plan-notes>{{ launch_plan_live.notes }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Backups</span>
+        <strong class="stat-value">{{ backup_files|length }}</strong>
+        <p>{{ profile.backup_retention_count }} retained archives per profile.</p>
+    </article>
+</section>
+
+{% if can_manage %}
+<section class="panel action-row">
+    <form method="post" action="/profiles/{{ profile.id }}/runtime/install">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <button class="button" type="submit">Install</button>
+    </form>
+    <form method="post" action="/profiles/{{ profile.id }}/runtime/update">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <input type="hidden" name="create_backup_before_update" value="on">
+        <input type="hidden" name="stop_server_before_update" value="on">
+        <button class="button button-subtle" type="submit">Update</button>
+    </form>
+    <form method="post" action="/profiles/{{ profile.id }}/runtime/start">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <button class="button" type="submit">Start</button>
+    </form>
+    <form method="post" action="/profiles/{{ profile.id }}/runtime/stop">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <button class="button button-subtle" type="submit">Stop</button>
+    </form>
+    <form method="post" action="/profiles/{{ profile.id }}/runtime/restart">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <button class="button button-subtle" type="submit">Restart</button>
+    </form>
+    <form method="post" action="/profiles/{{ profile.id }}/runtime/command" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <input name="command_text" placeholder="Console command">
+        <button class="button button-subtle" type="submit">Send</button>
+    </form>
+</section>
+{% endif %}
+
+{% if active_page == "overview" %}
+<section class="two-up">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Server Identity</p>
+                <h2>General Snapshot</h2>
+            </div>
+        </div>
+        <div class="detail-grid">
+            <div><span class="meta-label">Public Name</span><code>{{ general_settings.public_name }}</code></div>
+            <div><span class="meta-label">Public Listing</span><code>{{ "On" if general_settings.public else "Off" }}</code></div>
+            <div><span class="meta-label">Open Signup</span><code>{{ "On" if general_settings.open else "Off" }}</code></div>
+            <div><span class="meta-label">Pause Empty</span><code>{{ "On" if general_settings.pause_empty else "Off" }}</code></div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Workshop</p>
+                <h2>Mods & Maps Snapshot</h2>
+            </div>
+        </div>
+        <div class="detail-grid">
+            <div><span class="meta-label">Workshop IDs</span><code>{{ mods_maps_settings.workshop_ids|length }}</code></div>
+            <div><span class="meta-label">Mods</span><code>{{ mods_maps_settings.mod_ids|length }}</code></div>
+            <div><span class="meta-label">Maps</span><code>{{ mods_maps_settings.map_ids|length }}</code></div>
+            <div><span class="meta-label">Named Presets</span><code>{{ named_presets|length }}</code></div>
+        </div>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Recent Logs</p>
+            <h2>Runtime Output</h2>
+        </div>
+    </div>
+    <pre class="log-view" data-log-view>{% if recent_logs %}{{ recent_logs|join('\n') }}{% else %}No output yet.{% endif %}</pre>
+</section>
+
+<section class="two-up">
+    <article class="panel diagnostic-card diagnostic-card-{{ runtime_diagnostic.tone }}" data-diagnostic-card data-tone="{{ runtime_diagnostic.tone }}">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Runtime</p>
+                <h2 data-diagnostic-headline>{{ runtime_diagnostic.headline }}</h2>
+            </div>
+            <span class="pill diagnostic-pill diagnostic-pill-{{ runtime_diagnostic.tone }}" data-diagnostic-label>{{ runtime_diagnostic.label }}</span>
+        </div>
+        <p data-diagnostic-detail>{{ runtime_diagnostic.detail }}</p>
+        <p class="empty" data-diagnostic-action>{{ runtime_diagnostic.recommended_action }}</p>
+        <div class="detail-grid">
+            <div><span class="meta-label">Process ID</span><code data-runtime-pid>{{ runtime_snapshot.process_id or "Not running" }}</code></div>
+            <div><span class="meta-label">Started</span><code data-runtime-started>{{ runtime_snapshot.started_at or "Not started yet" }}</code></div>
+            <div><span class="meta-label">Stopped</span><code data-runtime-stopped>{{ runtime_snapshot.stopped_at or "Still active" }}</code></div>
+            <div><span class="meta-label">Latest Line</span><code data-runtime-latest-detail>{{ runtime_snapshot.latest_log_line or "Awaiting activity" }}</code></div>
+        </div>
+    </article>
+
+    <article class="panel active-job-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Operations</p>
+                <h2 data-active-job-title>{% if active_job %}{{ active_job.summary }}{% else %}No active job right now{% endif %}</h2>
+            </div>
+            <span class="pill diagnostic-pill diagnostic-pill-{% if active_job %}{{ active_job.status_tone }}{% else %}neutral{% endif %}" data-active-job-status>{% if active_job %}{{ active_job.kind_label }} | {{ active_job.status }}{% else %}Idle{% endif %}</span>
+        </div>
+        <p class="empty" data-active-job-empty {% if active_job %}hidden{% endif %}>Install, update, and restore work will appear here while the launcher is actively doing it.</p>
+        <div data-active-job-body {% if not active_job %}hidden{% endif %}>
+            <div class="job-progress" aria-hidden="true">
+                <span class="job-progress-fill job-progress-fill-{% if active_job %}{{ active_job.status_tone }}{% else %}neutral{% endif %}" data-active-job-progress-bar style="width: {% if active_job %}{{ active_job.progress_percent }}{% else %}0{% endif %}%"></span>
+            </div>
+            <div class="detail-grid">
+                <div><span class="meta-label">Progress</span><code data-active-job-progress>{% if active_job %}{{ active_job.progress_percent }}{% else %}0{% endif %}%</code></div>
+                <div><span class="meta-label">Started</span><code data-active-job-started>{% if active_job %}{{ active_job.started_at_label }}{% else %}Waiting to start{% endif %}</code></div>
+                <div><span class="meta-label">Updated</span><code data-active-job-updated>{% if active_job %}{{ active_job.updated_at_label }}{% else %}No active job{% endif %}</code></div>
+            </div>
+            <p data-active-job-detail>{% if active_job %}{{ active_job.detail }}{% else %}No detail yet.{% endif %}</p>
+        </div>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Console</p>
+            <h2>Recent Commands</h2>
+        </div>
+    </div>
+    <div class="card-stack" data-command-history>
+        {% if recent_commands %}
+            {% for command in recent_commands %}
+            <div class="list-card static command-card"><strong>{{ command }}</strong></div>
+            {% endfor %}
+        {% else %}
+        <p class="empty" data-command-history-empty>No commands have been sent through the launcher yet.</p>
+        {% endif %}
+    </div>
+</section>
+{% elif active_page == "general" %}
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Identity</span>
+        <strong class="stat-value">{{ general_settings.public_name }}</strong>
+        <p>{{ "Public listing on" if general_settings.public else "Public listing off" }} | {{ "Open signups" if general_settings.open else "Manual accounts" }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Gameplay</span>
+        <strong class="stat-value">{{ profile.max_players }} players</strong>
+        <p>{{ "PvP on" if general_settings.pvp else "PvP off" }} | {{ "Global chat on" if general_settings.global_chat else "Global chat off" }} | {{ "Pause empty" if general_settings.pause_empty else "Persistent simulation" }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Runtime</span>
+        <strong class="stat-value">{{ profile.preferred_memory_gb }} GB</strong>
+        <p>{{ profile.default_port }}/{{ profile.udp_port }} | {{ "Host startup on" if profile.start_with_host else "Host startup off" }} | {{ "Crash restart on" if profile.auto_restart_on_crash else "Crash restart off" }}</p>
+    </article>
+</section>
+
+<form method="post" class="card-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <section class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">General</p>
+                <h2>Server Browser Identity</h2>
+            </div>
+        </div>
+        <div class="grid-form">
+            <label>
+                <span>Display Name</span>
+                <input name="display_name" value="{{ profile.display_name }}" required>
+            </label>
+            <label>
+                <span>Server Name</span>
+                <input name="server_name" value="{{ profile.server_name }}" required>
+            </label>
+            <label>
+                <span>Public Server Name</span>
+                <input name="public_name" value="{{ general_settings.public_name }}" required>
+            </label>
+            <label>
+                <span>Public Description</span>
+                <input name="public_description" value="{{ general_settings.public_description }}">
+            </label>
+            <label>
+                <span>Max Players</span>
+                <input name="max_players" type="number" min="1" value="{{ general_settings.max_players }}">
+            </label>
+            <label class="checkbox-row">
+                <input name="public" type="checkbox" {% if general_settings.public %}checked{% endif %}>
+                <span>Show in the public server browser</span>
+            </label>
+            <label class="checkbox-row">
+                <input name="open_signup" type="checkbox" {% if general_settings.open %}checked{% endif %}>
+                <span>Allow open sign-ups</span>
+            </label>
+        </div>
+    </section>
+
+    <section class="two-up">
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">World Access</p>
+                    <h2>Gameplay Basics</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="pvp" type="checkbox" {% if general_settings.pvp %}checked{% endif %}>
+                    <span>Enable PvP</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="pause_empty" type="checkbox" {% if general_settings.pause_empty %}checked{% endif %}>
+                    <span>Pause when empty</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="global_chat" type="checkbox" {% if general_settings.global_chat %}checked{% endif %}>
+                    <span>Enable global chat</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="sleep_allowed" type="checkbox" {% if general_settings.sleep_allowed %}checked{% endif %}>
+                    <span>Allow sleep</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="sleep_needed" type="checkbox" {% if general_settings.sleep_needed %}checked{% endif %}>
+                    <span>Require sleep</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="no_fire" type="checkbox" {% if general_settings.no_fire %}checked{% endif %}>
+                    <span>Disable fire spread</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="announce_death" type="checkbox" {% if general_settings.announce_death %}checked{% endif %}>
+                    <span>Announce player deaths</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="allow_sledgehammer_destruction" type="checkbox" {% if general_settings.allow_sledgehammer_destruction %}checked{% endif %}>
+                    <span>Allow sledge destruction</span>
+                </label>
+                <label class="sandbox-span-full">
+                    <span>Welcome Message</span>
+                    <textarea name="server_welcome_message" rows="5">{{ general_settings.server_welcome_message }}</textarea>
+                </label>
+            </div>
+        </article>
+
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Spawn & Loot Lifecycle</p>
+                    <h2>Spawn, Loot, and Cleanup</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="sandbox-span-full">
+                    <span>Spawn Items</span>
+                    <textarea name="spawn_items" rows="6">{{ general_settings.spawn_items }}</textarea>
+                </label>
+                <label>
+                    <span>Loot Respawn Hours</span>
+                    <input name="loot_respawn_hours" value="{{ general_settings.loot_respawn_hours }}">
+                </label>
+                <label>
+                    <span>Loot Respawn Max Items</span>
+                    <input name="loot_respawn_max_items" value="{{ general_settings.loot_respawn_max_items }}">
+                </label>
+                <label class="checkbox-row">
+                    <input name="construction_prevents_loot_respawn" type="checkbox" {% if general_settings.construction_prevents_loot_respawn %}checked{% endif %}>
+                    <span>Buildings prevent loot respawn</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="respawn_with_self" type="checkbox" {% if general_settings.respawn_with_self %}checked{% endif %}>
+                    <span>Respawn at death location</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="respawn_with_other" type="checkbox" {% if general_settings.respawn_with_other %}checked{% endif %}>
+                    <span>Respawn with split-screen partner</span>
+                </label>
+                <label>
+                    <span>Ground Item Cleanup Hours</span>
+                    <input name="world_item_removal_hours" value="{{ general_settings.world_item_removal_hours }}">
+                </label>
+                <label class="sandbox-span-full">
+                    <span>Ground Item Cleanup List</span>
+                    <textarea name="world_item_removal_list" rows="6">{{ general_settings.world_item_removal_list }}</textarea>
+                </label>
+            </div>
+        </article>
+    </section>
+
+    <section class="two-up">
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Safehouses</p>
+                    <h2>Claiming and Protection Rules</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="player_safehouse" type="checkbox" {% if general_settings.player_safehouse %}checked{% endif %}>
+                    <span>Allow player safehouses</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="admin_safehouse" type="checkbox" {% if general_settings.admin_safehouse %}checked{% endif %}>
+                    <span>Allow admin safehouses</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="safehouse_allow_trespass" type="checkbox" {% if general_settings.safehouse_allow_trespass %}checked{% endif %}>
+                    <span>Allow trespass</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="safehouse_allow_fire" type="checkbox" {% if general_settings.safehouse_allow_fire %}checked{% endif %}>
+                    <span>Allow fire damage</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="safehouse_allow_loot" type="checkbox" {% if general_settings.safehouse_allow_loot %}checked{% endif %}>
+                    <span>Allow looting</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="safehouse_allow_respawn" type="checkbox" {% if general_settings.safehouse_allow_respawn %}checked{% endif %}>
+                    <span>Allow respawn</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="safehouse_allow_non_residential" type="checkbox" {% if general_settings.safehouse_allow_non_residential %}checked{% endif %}>
+                    <span>Allow non-residential claiming</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="disable_safehouse_when_player_connected" type="checkbox" {% if general_settings.disable_safehouse_when_player_connected %}checked{% endif %}>
+                    <span>Disable while owner is online</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="disable_safehouse_when_player_disconnected" type="checkbox" {% if general_settings.disable_safehouse_when_player_disconnected %}checked{% endif %}>
+                    <span>Disable while owner is offline</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="drop_whitelist_on_death" type="checkbox" {% if general_settings.drop_whitelist_on_death %}checked{% endif %}>
+                    <span>Drop whitelist on death</span>
+                </label>
+                <label>
+                    <span>Days Before Claim Is Allowed</span>
+                    <input name="safehouse_days_to_claim" value="{{ general_settings.safehouse_days_to_claim }}">
+                </label>
+                <label>
+                    <span>Removal Time (Hours)</span>
+                    <input name="safehouse_removal_hours" value="{{ general_settings.safehouse_removal_hours }}">
+                </label>
+            </div>
+        </article>
+
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Factions & Trade</p>
+                    <h2>Shared Progression Rules</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="faction_enabled" type="checkbox" {% if general_settings.faction_enabled %}checked{% endif %}>
+                    <span>Enable factions</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="allow_trade_ui" type="checkbox" {% if general_settings.allow_trade_ui %}checked{% endif %}>
+                    <span>Allow trade UI</span>
+                </label>
+                <label>
+                    <span>Days Before A Faction Can Be Created</span>
+                    <input name="faction_days_to_create" value="{{ general_settings.faction_days_to_create }}">
+                </label>
+                <label>
+                    <span>Players Required For A Faction Tag</span>
+                    <input name="faction_players_for_tag" value="{{ general_settings.faction_players_for_tag }}">
+                </label>
+            </div>
+        </article>
+    </section>
+
+    <section class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Ports & Runtime</p>
+                <h2>Launcher Runtime Defaults</h2>
+            </div>
+        </div>
+        <div class="grid-form">
+            <label>
+                <span>Default Port</span>
+                <input name="default_port" type="number" min="1" max="65535" value="{{ general_settings.default_port }}">
+            </label>
+            <label>
+                <span>UDP Port</span>
+                <input name="udp_port" type="number" min="1" max="65535" value="{{ general_settings.udp_port }}">
+            </label>
+            <label>
+                <span>RCON Port</span>
+                <input name="rcon_port" value="{{ general_settings.rcon_port }}">
+            </label>
+            <label>
+                <span>Preferred Memory (GB)</span>
+                <input name="preferred_memory_gb" type="number" min="1" value="{{ general_settings.preferred_memory_gb }}">
+            </label>
+            <label class="checkbox-row">
+                <input name="start_with_host" type="checkbox" {% if general_settings.start_with_host %}checked{% endif %}>
+                <span>Start this server when the host starts</span>
+            </label>
+            <label class="checkbox-row">
+                <input name="auto_restart_on_crash" type="checkbox" {% if general_settings.auto_restart_on_crash %}checked{% endif %}>
+                <span>Auto restart on crash</span>
+            </label>
+        </div>
+        <button class="button" type="submit">Save General Settings</button>
+    </section>
+</form>
+{% elif active_page == "install-update" %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Install</p>
+            <h2>Install and Update</h2>
+        </div>
+    </div>
+    <div class="detail-grid">
+        <div>
+            <span class="meta-label">Install Directory</span>
+            <code data-launch-plan-working-directory>{{ launch_plan_live.working_directory }}</code>
+        </div>
+        <div>
+            <span class="meta-label">Cache Directory</span>
+            <code>{{ profile.cache_directory }}</code>
+        </div>
+        <div>
+            <span class="meta-label">Branch</span>
+            <code>{{ profile.branch }}</code>
+        </div>
+        <div>
+            <span class="meta-label">Launch Command</span>
+            <code data-launch-plan-command>{{ launch_plan_live.command_label }}</code>
+        </div>
+        <div>
+            <span class="meta-label">SteamCMD Command</span>
+            <code>{{ " ".join(request.app.state.zomboid_service.resolve_install_command(profile)) }}</code>
+        </div>
+        <div>
+            <span class="meta-label">Update Safety</span>
+            <code>SteamCMD jobs validate files. Safe update mode can stop the managed server, create a pre-update backup, and optionally start the server again after completion.</code>
+        </div>
+        <div>
+            <span class="meta-label">Recent Job Count</span>
+            <code>{{ profile_jobs|length }}</code>
+        </div>
+    </div>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Step 1</p>
+                <h2>Choose Where This Server Lives</h2>
+            </div>
+        </div>
+        <form method="post" action="/profiles/{{ profile.id }}/install-update/settings" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+                <span>Install Folder</span>
+                <input name="install_directory" value="{{ profile.install_directory }}">
+            </label>
+            <label>
+                <span>Profile Cache Folder</span>
+                <input name="cache_directory" value="{{ profile.cache_directory }}">
+            </label>
+            <label>
+                <span>Branch</span>
+                <select name="branch">
+                    {% for branch_id, branch_label in branch_options %}
+                    <option value="{{ branch_id }}" {% if profile.branch == branch_id %}selected{% endif %}>{{ branch_label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="detail-grid">
+                <div>
+                    <span class="meta-label">Install Footprint</span>
+                    <code>{{ "Launcher-managed" if profile_install_is_managed else "Custom / external" }}</code>
+                </div>
+                <div>
+                    <span class="meta-label">Cache Footprint</span>
+                    <code>{{ "Launcher-managed" if profile_cache_is_managed else "Custom / external" }}</code>
+                </div>
+            </div>
+            <p class="empty">Saving folder overrides only updates where this profile points. Existing files are not moved automatically, so save the paths first and then install, update, or restore as needed.</p>
+            <button class="button" type="submit">Save Folders and Branch</button>
+        </form>
+    </article>
+
+    <article class="panel diagnostic-card diagnostic-card-{{ runtime_diagnostic.tone }}" data-diagnostic-card data-tone="{{ runtime_diagnostic.tone }}">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Step 2</p>
+                <h2 data-diagnostic-headline>{{ runtime_diagnostic.headline }}</h2>
+            </div>
+            <span class="pill diagnostic-pill diagnostic-pill-{{ runtime_diagnostic.tone }}" data-diagnostic-label>{{ runtime_diagnostic.label }}</span>
+        </div>
+        <p data-diagnostic-detail>{{ runtime_diagnostic.detail }}</p>
+        <p class="empty" data-diagnostic-action>{{ runtime_diagnostic.recommended_action }}</p>
+        <div class="detail-grid">
+            <div><span class="meta-label">Install State</span><code data-launch-plan-state>{{ launch_plan_live.state_label }}</code></div>
+            <div><span class="meta-label">Runtime</span><code data-runtime-state>{{ runtime_snapshot.state }}</code></div>
+            <div><span class="meta-label">Latest Line</span><code data-runtime-latest-detail>{{ runtime_snapshot.latest_log_line or "Awaiting activity" }}</code></div>
+            <div><span class="meta-label">Planner Notes</span><code data-launch-plan-notes>{{ launch_plan_live.notes }}</code></div>
+        </div>
+    </article>
+
+    <article class="panel active-job-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Step 3</p>
+                <h2 data-active-job-title>{% if active_job %}{{ active_job.summary }}{% else %}No active job right now{% endif %}</h2>
+            </div>
+            <span class="pill diagnostic-pill diagnostic-pill-{% if active_job %}{{ active_job.status_tone }}{% else %}neutral{% endif %}" data-active-job-status>{% if active_job %}{{ active_job.kind_label }} | {{ active_job.status }}{% else %}Idle{% endif %}</span>
+        </div>
+        <p class="empty" data-active-job-empty {% if active_job %}hidden{% endif %}>When an install or safe update job is active, its progress and latest detail will stay pinned here.</p>
+        <div data-active-job-body {% if not active_job %}hidden{% endif %}>
+            <div class="job-progress" aria-hidden="true">
+                <span class="job-progress-fill job-progress-fill-{% if active_job %}{{ active_job.status_tone }}{% else %}neutral{% endif %}" data-active-job-progress-bar style="width: {% if active_job %}{{ active_job.progress_percent }}{% else %}0{% endif %}%"></span>
+            </div>
+            <div class="detail-grid">
+                <div><span class="meta-label">Progress</span><code data-active-job-progress>{% if active_job %}{{ active_job.progress_percent }}{% else %}0{% endif %}%</code></div>
+                <div><span class="meta-label">Started</span><code data-active-job-started>{% if active_job %}{{ active_job.started_at_label }}{% else %}Waiting to start{% endif %}</code></div>
+                <div><span class="meta-label">Updated</span><code data-active-job-updated>{% if active_job %}{{ active_job.updated_at_label }}{% else %}No active job{% endif %}</code></div>
+            </div>
+            <p data-active-job-detail>{% if active_job %}{{ active_job.detail }}{% else %}No detail yet.{% endif %}</p>
+        </div>
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Operations</p>
+                <h2>Install and Safe Update Jobs</h2>
+            </div>
+        </div>
+
+        <form method="post" action="/profiles/{{ profile.id }}/runtime/install" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <p class="empty">Use this for first-time deployment or a clean reinstall pass through the managed install directory.</p>
+            <label class="checkbox-row">
+                <input name="restart_after_completion" type="checkbox">
+                <span>Start the managed server after the install finishes</span>
+            </label>
+            <button class="button" type="submit">Queue Install Job</button>
+        </form>
+
+        <form method="post" action="/profiles/{{ profile.id }}/runtime/update" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <p class="empty">Safe update mode can freeze the managed runtime, take a restore point, run SteamCMD, and bring the server back up in one flow.</p>
+            <label class="checkbox-row">
+                <input name="create_backup_before_update" type="checkbox" checked>
+                <span>Create a pre-update backup first</span>
+            </label>
+            <label class="checkbox-row">
+                <input name="stop_server_before_update" type="checkbox" checked>
+                <span>Stop the managed server before updating</span>
+            </label>
+            <label class="checkbox-row">
+                <input name="restart_after_completion" type="checkbox">
+                <span>Start the managed server again after the update</span>
+            </label>
+            <button class="button button-subtle" type="submit">Queue Safe Update Job</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Jobs</p>
+                <h2>Recent Install and Update Activity</h2>
+            </div>
+        </div>
+        {% if profile_jobs %}
+        <div class="card-stack" data-job-list>
+            {% for job in profile_jobs %}
+            <article class="list-card static job-card job-tone-{{ job.status_tone }}{% if job.is_active %} job-card-active{% endif %}">
+                <strong>{{ job.summary }}</strong>
+                <span>{{ job.kind_label }} | {{ job.status }} | {{ job.progress_percent }}%</span>
+                <div class="job-progress" aria-hidden="true">
+                    <span class="job-progress-fill job-progress-fill-{{ job.status_tone }}" style="width: {{ job.progress_percent }}%"></span>
+                </div>
+                <small>{{ job.detail }}</small>
+                <small>Created {{ job.created_at_label }}</small>
+                <small>Updated {{ job.updated_at_label }}</small>
+                <small>Completed {{ job.completed_at_label }}</small>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card-stack" data-job-list></div>
+        <p class="empty" data-job-list-empty>No install or update jobs have been queued for this profile yet.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel diagnostic-card diagnostic-card-warning">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Danger Zone</p>
+                <h2>Uninstall Managed Server Files</h2>
+            </div>
+        </div>
+        <p class="empty">
+            {% if profile_install_is_managed %}
+            Uninstall removes only the launcher-managed install directory. The profile, backups, cache, and logs stay in place so you can reinstall later.
+            {% else %}
+            This profile is using a custom install directory, so launcher-managed uninstall is intentionally blocked.
+            {% endif %}
+        </p>
+        <form method="post" action="/profiles/{{ profile.id }}/install-update/uninstall" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+                <span>Type UNINSTALL to confirm</span>
+                <input name="confirmation_text" placeholder="UNINSTALL">
+            </label>
+            <button class="button button-subtle" type="submit">Uninstall Server</button>
+        </form>
+    </article>
+
+    <article class="panel form-panel diagnostic-card diagnostic-card-danger">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Danger Zone</p>
+                <h2>Delete Profile</h2>
+            </div>
+        </div>
+        <p class="empty">Delete Profile removes this server from the launcher and cleans up launcher-managed install/cache folders, backups, logs, runtime state, drafts, jobs, and saved workshop presets. External install or cache folders are left alone.</p>
+        <form method="post" action="/profiles/{{ profile.id }}/install-update/delete" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+                <span>Type DELETE to confirm</span>
+                <input name="confirmation_text" placeholder="DELETE">
+            </label>
+            <button class="button button-subtle" type="submit">Delete Profile</button>
+        </form>
+    </article>
+</section>
+{% elif active_page == "sandbox" %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Sandbox</p>
+            <h2>Structured Sandbox Editing</h2>
+        </div>
+    </div>
+    <p>These fields now cover the full Windows launcher catalog. Drafts, preset resets, and world resets all stay on this page so you can work through the sandbox workflow without dropping into raw files unless you want to.</p>
+    <code>{{ sandbox_path }}</code>
+</section>
+
+{% if sandbox_has_draft %}
+<section class="panel sandbox-draft-banner">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Draft Active</p>
+            <h2>The editor is showing draft values</h2>
+        </div>
+    </div>
+    <p>Nothing has been written into the live <code>SandboxVars.lua</code> file yet. Save the live sandbox when you are happy with the draft, or discard it to go back to the current server state.</p>
+</section>
+{% endif %}
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Compare & Filter</p>
+                <h2>Preset View and Category Focus</h2>
+            </div>
+        </div>
+        <form method="get" class="grid-form">
+            <label>
+                <span>Preset Comparison</span>
+                <select name="preset_id">
+                    {% for preset in sandbox_presets %}
+                    <option value="{{ preset.id }}" {% if sandbox_selected_preset_id == preset.id %}selected{% endif %}>{{ preset.display_label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>
+                <span>Search</span>
+                <input name="q" value="{{ sandbox_search }}" placeholder="Transmission, loot, vehicles...">
+            </label>
+            <label>
+                <span>Category</span>
+                <select name="category">
+                    <option value="">All categories</option>
+                    {% for category in sandbox_category_overview %}
+                    <option value="{{ category.id }}" {% if sandbox_active_category == category.id %}selected{% endif %}>{{ category.title }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="action-row">
+                <button class="button button-subtle" type="submit">Update View</button>
+                <a class="button button-subtle" href="/profiles/{{ profile.id }}/sandbox">Clear Filters</a>
+            </div>
+        </form>
+    </article>
+
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Preset Library</p>
+                <h2>{{ sandbox_selected_preset.display_label if sandbox_selected_preset else "No preset loaded" }}</h2>
+            </div>
+        </div>
+        <p>{% if sandbox_selected_preset %}Compare the current editor state against <strong>{{ sandbox_selected_preset.name }}</strong>, apply it into a draft, or use the current editor values to save a custom preset.{% else %}No sandbox preset is available yet.{% endif %}</p>
+        <div class="grid-form">
+            <label>
+                <span>Custom Preset Name</span>
+                <input form="sandbox-editor-form" name="custom_preset_name" placeholder="Hard Winter PvE" value="">
+            </label>
+            <div class="action-row">
+                <button class="button button-subtle" form="sandbox-editor-form" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="apply_preset" type="submit">Apply Preset To Draft</button>
+                <button class="button button-subtle" form="sandbox-editor-form" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="reset_all" type="submit">Reset All To Preset</button>
+                <button class="button button-subtle" form="sandbox-editor-form" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="save_custom_preset" type="submit">Save Custom Preset</button>
+                {% if sandbox_selected_preset and not sandbox_selected_preset.is_builtin %}
+                <button class="button button-subtle" form="sandbox-editor-form" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="delete_custom_preset" type="submit">Delete Selected Custom Preset</button>
+                {% endif %}
+            </div>
+        </div>
+    </article>
+</section>
+
+<form id="sandbox-editor-form" method="post" action="/profiles/{{ profile.id }}/sandbox" class="card-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="sandbox_preset_id" value="{{ sandbox_selected_preset_id }}">
+    <input type="hidden" name="sandbox_search" value="{{ sandbox_search }}">
+    <input type="hidden" name="sandbox_category" value="{{ sandbox_active_category }}">
+    <input type="hidden" name="preset_id" value="{{ sandbox_selected_preset_id }}">
+
+    <section class="panel action-row">
+        <button class="button" type="submit">Save Live Sandbox</button>
+        <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/draft" name="action" value="save_draft" type="submit">Save Draft</button>
+        <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/draft" name="action" value="discard_draft" type="submit">Discard Draft</button>
+        <a class="button button-subtle" href="/profiles/{{ profile.id }}/advanced-files">Open Raw Files</a>
+    </section>
+
+    <section class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Categories</p>
+                <h2>Windows Catalog Overview</h2>
+            </div>
+        </div>
+        <div class="stats-grid sandbox-category-overview">
+            <a class="list-card static sandbox-category-card{% if not sandbox_active_category %} active{% endif %}" href="{{ sandbox_url_builder(preset_id=sandbox_selected_preset_id, search=sandbox_search, category='') }}">
+                <strong>All Categories</strong>
+                <span>{{ sandbox_category_overview|length }} category group(s)</span>
+            </a>
+            {% for category in sandbox_category_overview %}
+            <a class="list-card static sandbox-category-card{% if sandbox_active_category == category.id %} active{% endif %}" href="{{ sandbox_url_builder(preset_id=sandbox_selected_preset_id, search=sandbox_search, category=category.id) }}">
+                <strong>{{ category.title }}</strong>
+                <span>{{ category.status_text }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if sandbox_categories %}
+        {% for category in sandbox_categories %}
+        <article class="panel form-panel" id="sandbox-category-{{ category.id }}">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Category</p>
+                    <h2>{{ category.title }}</h2>
+                    <p class="empty">{{ category.status_text }}</p>
+                </div>
+                {% if sandbox_selected_preset %}
+                <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="reset_category:{{ category.id }}" type="submit">Reset Category To Preset</button>
+                {% endif %}
+            </div>
+
+            <div class="card-stack">
+                {% for section in category.sections %}
+                <section class="sandbox-section">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">{{ section.definition.category_title }}</p>
+                            <h3>{{ section.definition.title }}</h3>
+                        </div>
+                        {% if section.compared_field_count %}
+                        <span class="pill">{{ section.matching_field_count }}/{{ section.compared_field_count }} match</span>
+                        {% endif %}
+                    </div>
+                    <p class="empty">{{ section.definition.description }}</p>
+                    <div class="sandbox-grid">
+                        {% for field in section.fields %}
+                        <div class="sandbox-field-block{% if field.definition.field_type == 'textarea' %} sandbox-span-full{% endif %}{% if field.has_preset_value and not field.matches_preset %} sandbox-field-block-changed{% endif %}">
+                            <input type="hidden" name="__visible_field" value="{{ field.definition.name }}">
+                            {% if field.definition.field_type == "checkbox" %}
+                            <label class="checkbox-row sandbox-toggle">
+                                <input name="{{ field.definition.name }}" type="checkbox" {% if field.current_value == "true" %}checked{% endif %}>
+                                <span>{{ field.definition.label }}</span>
+                            </label>
+                            {% elif field.definition.field_type == "select" %}
+                            <label>
+                                <span>{{ field.definition.label }}</span>
+                                <select name="{{ field.definition.name }}">
+                                    {% for option in field.definition.options %}
+                                    <option value="{{ option.value }}" {% if field.current_value == option.value %}selected{% endif %}>{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            {% elif field.definition.field_type == "textarea" %}
+                            <label>
+                                <span>{{ field.definition.label }}</span>
+                                <textarea name="{{ field.definition.name }}" rows="4">{{ field.current_value }}</textarea>
+                            </label>
+                            {% elif field.definition.field_type == "text" %}
+                            <label>
+                                <span>{{ field.definition.label }}</span>
+                                <input name="{{ field.definition.name }}" value="{{ field.current_value }}">
+                            </label>
+                            {% else %}
+                            <label>
+                                <span>{{ field.definition.label }}</span>
+                                <input
+                                    name="{{ field.definition.name }}"
+                                    type="number"
+                                    {% if field.definition.field_type == "decimal" %}step="any"{% else %}step="1"{% endif %}
+                                    value="{{ field.current_value }}">
+                            </label>
+                            {% endif %}
+
+                            {% if field.has_preset_value %}
+                            <p class="sandbox-field-meta {% if field.matches_preset %}sandbox-match{% else %}sandbox-changed{% endif %}">
+                                {% if field.matches_preset %}
+                                Matches preset
+                                {% else %}
+                                Preset value: {{ field.preset_value }}
+                                {% endif %}
+                            </p>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+    {% else %}
+    <section class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">No Match</p>
+                <h2>No sandbox sections match this filter</h2>
+            </div>
+        </div>
+        <p class="empty">Clear the search or switch back to all categories to see the full catalog again.</p>
+    </section>
+    {% endif %}
+
+    <section class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">World Reset</p>
+                <h2>Reset Multiplayer World Data</h2>
+            </div>
+        </div>
+        <p class="empty">This removes the current multiplayer save folder for <code>{{ profile.server_name }}</code>, increments <code>ResetID</code>, and generates a new <code>Seed</code> in the live server <code>.ini</code>.</p>
+        <div class="grid-form">
+            <label class="checkbox-row">
+                <input name="create_backup_before_reset" type="checkbox" checked>
+                <span>Create a pre-reset backup first</span>
+            </label>
+            <label class="checkbox-row">
+                <input name="restart_after_reset" type="checkbox">
+                <span>Start the managed server again after the reset</span>
+            </label>
+        </div>
+        <div class="action-row">
+            <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/reset-world" type="submit">Reset World Data</button>
+        </div>
+    </section>
+
+    <section class="panel action-row">
+        <button class="button" type="submit">Save Live Sandbox</button>
+        <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/draft" name="action" value="save_draft" type="submit">Save Draft</button>
+        <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/draft" name="action" value="discard_draft" type="submit">Discard Draft</button>
+    </section>
+</form>
+{% elif active_page == "mods-maps" %}
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Local Workshop Cache</span>
+        <strong class="stat-value">{{ mods_maps_validation.catalog_count }}</strong>
+        <p>{{ mods_maps_validation.installed_mod_count }} mod IDs and {{ mods_maps_validation.installed_map_count }} map folders were discovered under the managed Steam workshop paths.</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Workshop Browser</span>
+        <strong class="stat-value">{{ workshop_browser_result.items|length }}</strong>
+        <p>{% if workshop_browser_has_api_key %}Steam search and collection lookup are enabled.{% else %}Local search is active. Add a Steam Web API key to unlock Steam search and collection discovery.{% endif %}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Live Stack</span>
+        <strong class="stat-value">{{ mods_maps_settings.mod_ids|length }} mods</strong>
+        <p>{{ mods_maps_settings.workshop_ids|length }} workshop IDs | {{ mods_maps_settings.map_ids|length }} maps | {{ mods_maps_validation.resolved_workshop_ids|length }} workshop IDs after local auto-resolution.</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Recovery Library</span>
+        <strong class="stat-value">{{ named_presets|length }}</strong>
+        <p>{{ mods_maps_validation.missing_mod_ids|length + mods_maps_validation.missing_map_ids|length + mods_maps_validation.missing_workshop_ids|length }} validation alerts are currently active for the live stack.</p>
+    </article>
+</section>
+
+<section class="two-up mods-browser-grid">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Workshop Browser</p>
+                <h2>Local Cache and Steam Search</h2>
+            </div>
+        </div>
+        <p class="empty">Search the local workshop cache by mod or collection name, or paste a Workshop item / collection URL or ID. When a Steam Web API key is configured, the browser also queries Steam directly.</p>
+
+        {% if workshop_browser_can_configure %}
+        <form method="post" action="/profiles/{{ profile.id }}/mods-maps" class="card-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
+            <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
+            <label>
+                <span>Steam Web API Key</span>
+                <input name="steam_web_api_key" type="password" placeholder="{% if workshop_browser_has_api_key %}A key is already stored. Enter a new one to replace it.{% else %}Paste a Steam Web API user key to enable online search{% endif %}">
+            </label>
+            <div class="action-row">
+                <button class="button button-subtle" type="submit" name="action" value="save_workshop_api_key">Save API Key</button>
+                {% if workshop_browser_has_api_key %}
+                <button class="button button-subtle" type="submit" name="action" value="clear_workshop_api_key">Clear API Key</button>
+                {% endif %}
+            </div>
+        </form>
+        {% else %}
+        <p class="empty">{% if workshop_browser_has_api_key %}A Steam Web API key is already stored for this host.{% else %}An admin can save a Steam Web API key here to unlock Steam search and collection import.{% endif %}</p>
+        {% endif %}
+
+        <form method="get" action="/profiles/{{ profile.id }}/mods-maps" class="inline-form">
+            <input name="q" value="{{ mods_maps_query }}" placeholder="Search mod / collection name, or paste a Workshop item / collection URL / ID">
+            <button class="button button-subtle" type="submit">Search Browser</button>
+        </form>
+
+        <div class="card-stack">
+            {% for note in workshop_browser_result.diagnostics %}
+            <div class="list-card static">
+                <strong>{{ note }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="card-stack mods-catalog-list">
+            {% if workshop_browser_result.items %}
+                {% for item in workshop_browser_result.items %}
+                <article class="list-card static mods-catalog-card workshop-browser-card">
+                    {% if item.preview_url %}
+                    <img class="mods-preview-image" src="{{ item.preview_url }}" alt="{{ item.title }}">
+                    {% endif %}
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.workshop_id }} | {{ item.kind_label }} | {{ item.source_label }}</span>
+                    <small>
+                        {% if item.description %}
+                        {{ item.description[:220] }}{% if item.description|length > 220 %}...{% endif %}
+                        {% elif item.mod_ids or item.map_ids %}
+                        {% if item.mod_ids %}Mods: {{ item.mod_ids|join(", ") }}{% endif %}{% if item.mod_ids and item.map_ids %} | {% endif %}{% if item.map_ids %}Maps: {{ item.map_ids|join(", ") }}{% endif %}
+                        {% else %}
+                        No mod or map metadata has been resolved for this result yet.
+                        {% endif %}
+                    </small>
+                    <small>Installed locally: {{ "yes" if item.is_installed_locally else "no" }} | Already queued: {{ "yes" if item.is_queued else "no" }}{% if item.kind == "collection" %} | {{ item.collection_item_count }} child item(s){% endif %}</small>
+                    <div class="action-row">
+                        <a class="button button-subtle" href="/profiles/{{ profile.id }}/mods-maps?q={{ mods_maps_query }}&preview={{ item.workshop_id }}">Preview</a>
+                        {% if item.kind == "item" and (item.mod_ids or item.map_ids or item.is_installed_locally) %}
+                        <button
+                            class="button button-subtle"
+                            type="button"
+                            data-queue-pack
+                            data-workshop-ids="{{ item.workshop_id }}"
+                            data-mods="{{ item.mod_ids|join('||') }}"
+                            data-maps="{{ item.map_ids|join('||') }}"
+                        >
+                            Queue Whole Pack
+                        </button>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            {% else %}
+            <p class="empty">No workshop browser results matched this query yet. Try a Workshop ID, a collection URL, or a broader search term.</p>
+            {% endif %}
+        </div>
+    </article>
+
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Preview</p>
+                <h2>Selected Workshop Result</h2>
+            </div>
+        </div>
+        {% if workshop_browser_preview %}
+        {% set preview_item = workshop_browser_preview.item %}
+        <div class="detail-grid mods-preview-grid">
+            <div>
+                <span class="meta-label">Workshop ID</span>
+                <code>{{ preview_item.workshop_id }}</code>
+            </div>
+            <div>
+                <span class="meta-label">Source</span>
+                <code>{{ preview_item.source_label }}</code>
+            </div>
+            <div>
+                <span class="meta-label">Kind</span>
+                <code>{{ preview_item.kind_label }}</code>
+            </div>
+            <div>
+                <span class="meta-label">Installed Locally</span>
+                <code>{{ "yes" if preview_item.is_installed_locally else "no" }}</code>
+            </div>
+            {% if preview_item.source_path %}
+            <div>
+                <span class="meta-label">Local Path</span>
+                <code>{{ preview_item.source_path }}</code>
+            </div>
+            {% endif %}
+            {% if preview_item.kind == "collection" %}
+            <div>
+                <span class="meta-label">Child Items</span>
+                <code>{{ preview_item.collection_item_count }}</code>
+            </div>
+            {% endif %}
+        </div>
+        {% if preview_item.preview_url %}
+        <img class="mods-preview-image mods-preview-image-large" src="{{ preview_item.preview_url }}" alt="{{ preview_item.title }}">
+        {% endif %}
+        <div class="mods-preview-stack">
+            {% if preview_item.description %}
+            <p class="empty">{{ preview_item.description }}</p>
+            {% endif %}
+            {% if preview_item.tags %}
+            <div>
+                <p class="eyebrow">Tags</p>
+                <div class="mods-pill-list">
+                    {% for tag in preview_item.tags %}
+                    <span class="pill">{{ tag }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            <div>
+                <p class="eyebrow">Enabled Mod IDs</p>
+                <div class="mods-pill-list">
+                    {% if preview_item.mod_ids %}
+                        {% for mod_id in preview_item.mod_ids %}
+                        <span class="pill">{{ mod_id }}</span>
+                        {% endfor %}
+                    {% else %}
+                    <p class="empty">This result did not expose any mod IDs.</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <p class="eyebrow">Map Folders</p>
+                <div class="mods-pill-list">
+                    {% if preview_item.map_ids %}
+                        {% for map_id in preview_item.map_ids %}
+                        <span class="pill">{{ map_id }}</span>
+                        {% endfor %}
+                    {% else %}
+                    <p class="empty">This result did not expose any map folders.</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% if workshop_browser_preview.collection_children %}
+            <div>
+                <p class="eyebrow">Collection Children</p>
+                <div class="card-stack">
+                    {% for child in workshop_browser_preview.collection_children %}
+                    <div class="list-card static">
+                        <strong>{{ child.title }}</strong>
+                        <small>{{ child.workshop_id }} | installed locally: {{ "yes" if child.is_installed_locally else "no" }} | queued: {{ "yes" if child.is_queued else "no" }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        <div class="action-row">
+            <button
+                class="button"
+                type="button"
+                data-queue-pack
+                data-workshop-ids="{{ workshop_browser_preview.workshop_ids_to_add|join('||') }}"
+                data-mods="{{ workshop_browser_preview.mod_ids_to_add|join('||') }}"
+                data-maps="{{ workshop_browser_preview.map_ids_to_add|join('||') }}"
+            >
+                {% if preview_item.kind == "collection" %}Add Collection To Editor{% else %}Add To Editor{% endif %}
+            </button>
+            <button
+                class="button button-subtle"
+                type="button"
+                data-queue-mods
+                data-mods="{{ workshop_browser_preview.mod_ids_to_add|join('||') }}"
+            >
+                Queue Mods Only
+            </button>
+            <button
+                class="button button-subtle"
+                type="button"
+                data-queue-maps
+                data-maps="{{ workshop_browser_preview.map_ids_to_add|join('||') }}"
+            >
+                Queue Maps Only
+            </button>
+        </div>
+        {% else %}
+        <p class="empty">Pick a workshop result to preview its description, collection children, mod IDs, map folders, and queue impact before you add it to the editor.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Ordered Preset Manager</p>
+                <h2>Live Mods, Maps, and Workshop IDs</h2>
+            </div>
+        </div>
+        <p class="empty">The textareas remain the source of truth for the launcher. The ordered stacks below them let you reorder, remove, and queue content without losing direct-edit control.</p>
+        <form method="post" class="card-stack" data-mods-maps-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
+            <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
+            <div class="mods-textarea-stack">
+                <label>
+                    <span>Workshop IDs</span>
+                    <textarea name="workshop_ids_text" rows="6">{{ mods_maps_settings.workshop_ids_text }}</textarea>
+                </label>
+                <div class="card-stack mods-list-editor" data-list-editor="workshop"></div>
+            </div>
+            <div class="mods-textarea-stack">
+                <label>
+                    <span>Enabled Mod IDs</span>
+                    <textarea name="mod_ids_text" rows="6">{{ mods_maps_settings.mod_ids_text }}</textarea>
+                </label>
+                <div class="card-stack mods-list-editor" data-list-editor="mod"></div>
+            </div>
+            <div class="mods-textarea-stack">
+                <label>
+                    <span>Map Folders</span>
+                    <textarea name="map_ids_text" rows="5">{{ mods_maps_settings.map_ids_text }}</textarea>
+                </label>
+                <div class="card-stack mods-list-editor" data-list-editor="map"></div>
+            </div>
+            <label>
+                <span>Named Preset</span>
+                <input name="preset_name" placeholder="Modded PvE Baseline">
+            </label>
+            <div class="action-row">
+                <button class="button" type="submit" name="action" value="save_live">Save Live Stack</button>
+                <button class="button button-subtle" type="submit" name="action" value="save_preset">Save Named Preset</button>
+                <button class="button button-subtle" type="submit" name="action" value="scan_live">Scan Installed Workshop And Apply</button>
+            </div>
+        </form>
+    </article>
+
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Diagnostics</p>
+                <h2>Validation and Recovery Hints</h2>
+            </div>
+        </div>
+        <div class="card-stack">
+            {% for note in mods_maps_validation.diagnostics %}
+            <div class="list-card static">
+                <strong>{{ note }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="card-stack mods-validation-list">
+            {% for bucket in mods_maps_validation.buckets %}
+            <article class="list-card static diagnostic-card diagnostic-card-{{ bucket.tone }}">
+                <strong>{{ bucket.label }}</strong>
+                {% for item in bucket.items %}
+                <small>{{ item }}</small>
+                {% endfor %}
+            </article>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="panel form-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Preset Library</p>
+            <h2>Saved Recovery Packs</h2>
+        </div>
+    </div>
+    {% if named_presets %}
+    <div class="card-stack">
+        {% for preset in named_presets %}
+        <article class="list-card static mods-catalog-card">
+            <strong>{{ preset.name }}</strong>
+            <span>{{ preset.workshop_ids|length }} workshop | {{ preset.mod_ids|length }} mods | {{ preset.map_ids|length }} maps</span>
+            <small>{% if preset.mod_ids %}Mods: {{ preset.mod_ids|join(", ") }}{% else %}No mod IDs were saved with this preset.{% endif %}</small>
+            <small>{% if preset.map_ids %}Maps: {{ preset.map_ids|join(", ") }}{% else %}No map folders were saved with this preset.{% endif %}</small>
+            <div class="action-row">
+                <button
+                    class="button button-subtle"
+                    type="button"
+                    data-load-preset
+                    data-workshop="{{ preset.workshop_ids|join('||') }}"
+                    data-mods="{{ preset.mod_ids|join('||') }}"
+                    data-maps="{{ preset.map_ids|join('||') }}"
+                >
+                    Load Into Editor
+                </button>
+                <form method="post" action="/profiles/{{ profile.id }}/mods-maps">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="apply_preset">
+                    <input type="hidden" name="preset_id" value="{{ preset.id }}">
+                    <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
+                    <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
+                    <button class="button button-subtle" type="submit">Apply Live</button>
+                </form>
+                <form method="post" action="/profiles/{{ profile.id }}/mods-maps">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="delete_preset">
+                    <input type="hidden" name="preset_id" value="{{ preset.id }}">
+                    <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
+                    <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
+                    <button class="button button-subtle" type="submit">Delete</button>
+                </form>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No named presets saved yet.</p>
+    {% endif %}
+</section>
+{% elif active_page == "network-admin" %}
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Access</span>
+        <strong class="stat-value">{{ network_settings.bind_ip or "0.0.0.0" }}</strong>
+        <p>{{ "Steam mode on" if network_settings.steam_mode else "No-Steam mode" }} | {{ "UPnP on" if network_settings.upnp else "UPnP off" }} | Ping {{ network_settings.ping_limit }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Trust</span>
+        <strong class="stat-value">{{ "VAC on" if network_settings.steam_vac else "VAC off" }}</strong>
+        <p>{{ "Lua checksum on" if network_settings.do_lua_checksum else "Lua checksum off" }} | {{ "Fast-player kicks on" if network_settings.kick_fast_players else "Fast-player kicks off" }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Bootstrap</span>
+        <strong class="stat-value">{{ network_settings.admin_username or "Not configured" }}</strong>
+        <p>{% if network_settings.has_admin_password %}Bootstrap admin password is stored for launch-time injection.{% else %}No bootstrap admin password is stored yet.{% endif %}</p>
+    </article>
+</section>
+
+<form method="post" class="card-stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <section class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Access & Passwords</p>
+                <h2>Bind, Join, and Remote Console</h2>
+            </div>
+        </div>
+        <div class="grid-form">
+            <label>
+                <span>Bind IP</span>
+                <input name="bind_ip" value="{{ network_settings.bind_ip }}">
+            </label>
+            <label>
+                <span>RCON Port</span>
+                <input name="rcon_port" value="{{ network_settings.rcon_port }}">
+            </label>
+            <label>
+                <span>Join Password</span>
+                <input name="server_password" type="password" placeholder="{% if network_settings.has_server_password %}Leave blank to keep current password{% else %}Optional{% endif %}">
+            </label>
+            <label>
+                <span>RCON Password</span>
+                <input name="rcon_password" type="password" placeholder="{% if network_settings.has_rcon_password %}Leave blank to keep current password{% else %}Optional{% endif %}">
+            </label>
+            <label class="checkbox-row">
+                <input name="steam_mode" type="checkbox" {% if network_settings.steam_mode %}checked{% endif %}>
+                <span>Use Steam mode</span>
+            </label>
+        </div>
+    </section>
+
+    <section class="two-up">
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Compatibility & Discovery</p>
+                    <h2>Trust and Host Protection</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="auto_create_user_in_whitelist" type="checkbox" {% if network_settings.auto_create_user_in_whitelist %}checked{% endif %}>
+                    <span>Auto Create Whitelist Users</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="do_lua_checksum" type="checkbox" {% if network_settings.do_lua_checksum %}checked{% endif %}>
+                    <span>Enforce Lua Checksum</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="steam_vac" type="checkbox" {% if network_settings.steam_vac %}checked{% endif %}>
+                    <span>Steam VAC</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="kick_fast_players" type="checkbox" {% if network_settings.kick_fast_players %}checked{% endif %}>
+                    <span>Kick Fast Players</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="deny_login_overloaded" type="checkbox" {% if network_settings.deny_login_overloaded %}checked{% endif %}>
+                    <span>Deny Login When Overloaded</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="player_save_on_damage" type="checkbox" {% if network_settings.player_save_on_damage %}checked{% endif %}>
+                    <span>Save Player State On Damage</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="upnp" type="checkbox" {% if network_settings.upnp %}checked{% endif %}>
+                    <span>Enable UPnP</span>
+                </label>
+                <label>
+                    <span>Client Command Filter</span>
+                    <input name="client_command_filter" value="{{ network_settings.client_command_filter }}">
+                </label>
+                <label>
+                    <span>Ping Limit</span>
+                    <input name="ping_limit" value="{{ network_settings.ping_limit }}">
+                </label>
+                <label>
+                    <span>Save World Every Minutes</span>
+                    <input name="save_world_every_minutes" value="{{ network_settings.save_world_every_minutes }}">
+                </label>
+            </div>
+        </article>
+
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Identity & PvP Safety</p>
+                    <h2>Presence, Safety, and Account Limits</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="display_user_name" type="checkbox" {% if network_settings.display_user_name %}checked{% endif %}>
+                    <span>Display Username</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="show_first_and_last_name" type="checkbox" {% if network_settings.show_first_and_last_name %}checked{% endif %}>
+                    <span>Show First & Last Name</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="safety_system" type="checkbox" {% if network_settings.safety_system %}checked{% endif %}>
+                    <span>Enable Safety System</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="show_safety" type="checkbox" {% if network_settings.show_safety %}checked{% endif %}>
+                    <span>Show Safety Icon</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="allow_non_ascii_username" type="checkbox" {% if network_settings.allow_non_ascii_username %}checked{% endif %}>
+                    <span>Allow Non-ASCII Usernames</span>
+                </label>
+                <label>
+                    <span>Server Tag</span>
+                    <input name="server_tag" value="{{ network_settings.server_tag }}">
+                </label>
+                <label>
+                    <span>Reset ID</span>
+                    <input name="reset_id" value="{{ network_settings.reset_id }}">
+                </label>
+                <label>
+                    <span>Safety Toggle Timer</span>
+                    <input name="safety_toggle_timer" value="{{ network_settings.safety_toggle_timer }}">
+                </label>
+                <label>
+                    <span>Safety Cooldown Timer</span>
+                    <input name="safety_cooldown_timer" value="{{ network_settings.safety_cooldown_timer }}">
+                </label>
+                <label>
+                    <span>Max Accounts Per User</span>
+                    <input name="max_accounts_per_user" value="{{ network_settings.max_accounts_per_user }}">
+                </label>
+            </div>
+        </article>
+    </section>
+
+    <section class="two-up">
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Player Presence</p>
+                    <h2>Visibility and Map Exposure</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="mouse_over_display_name" type="checkbox" {% if network_settings.mouse_over_display_name %}checked{% endif %}>
+                    <span>Mouse Over To See Display Name</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="hide_players_behind_you" type="checkbox" {% if network_settings.hide_players_behind_you %}checked{% endif %}>
+                    <span>Hide Players Behind You</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="player_bump_player" type="checkbox" {% if network_settings.player_bump_player %}checked{% endif %}>
+                    <span>Player Bump Player</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="use_tcp_for_map_traffic" type="checkbox" {% if network_settings.use_tcp_for_map_traffic %}checked{% endif %}>
+                    <span>Use TCP For Map Traffic</span>
+                </label>
+                <label>
+                    <span>Remote Map Player Visibility</span>
+                    <input name="map_remote_player_visibility" value="{{ network_settings.map_remote_player_visibility }}">
+                </label>
+            </div>
+        </article>
+
+        <article class="panel form-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Voice Chat</p>
+                    <h2>Voice Range and Reading Pace</h2>
+                </div>
+            </div>
+            <div class="grid-form">
+                <label class="checkbox-row">
+                    <input name="voice_enable" type="checkbox" {% if network_settings.voice_enable %}checked{% endif %}>
+                    <span>Enable Voice Chat</span>
+                </label>
+                <label class="checkbox-row">
+                    <input name="voice_3d" type="checkbox" {% if network_settings.voice_3d %}checked{% endif %}>
+                    <span>Use 3D Voice</span>
+                </label>
+                <label>
+                    <span>Voice Min Distance</span>
+                    <input name="voice_min_distance" value="{{ network_settings.voice_min_distance }}">
+                </label>
+                <label>
+                    <span>Voice Max Distance</span>
+                    <input name="voice_max_distance" value="{{ network_settings.voice_max_distance }}">
+                </label>
+                <label>
+                    <span>Minutes Per Page</span>
+                    <input name="minutes_per_page" value="{{ network_settings.minutes_per_page }}">
+                </label>
+            </div>
+        </article>
+    </section>
+
+    <section class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Launcher Admin Bootstrap</p>
+                <h2>Launch-Time Admin Injection</h2>
+            </div>
+        </div>
+        <p class="empty">These are write-only launch helpers. Leave the password blank to keep the current bootstrap secret, and the launcher will pass the stored values into the server start command when configured.</p>
+        <div class="grid-form">
+            <label>
+                <span>Admin Username</span>
+                <input name="admin_username" value="{{ network_settings.admin_username }}">
+            </label>
+            <label>
+                <span>Admin Password</span>
+                <input name="admin_password" type="password" placeholder="{% if network_settings.has_admin_password %}Leave blank to keep current password{% else %}Optional{% endif %}">
+            </label>
+        </div>
+        <button class="button" type="submit">Save Network & Admin</button>
+    </section>
+</form>
+{% elif active_page == "backups" %}
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Scheduler</span>
+        <strong class="stat-value">{{ backup_schedule.status_label }}</strong>
+        <p>{{ backup_schedule.detail }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Last Backup</span>
+        <strong class="stat-value">{{ backup_schedule.last_backup_name or "None yet" }}</strong>
+        <p>{{ backup_schedule.last_backup_at.strftime("%Y-%m-%d %H:%M:%S UTC") if backup_schedule.last_backup_at else "The scheduler has not created a managed backup for this profile yet." }}</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Next Due</span>
+        <strong class="stat-value">{{ backup_schedule.next_backup_due_at.strftime("%Y-%m-%d %H:%M:%S UTC") if backup_schedule.next_backup_due_at else ("Pending first pass" if backup_schedule.enabled else "Disabled") }}</strong>
+        <p>{{ backup_schedule.retention_count }} managed archives retained at most, every {{ backup_schedule.interval_hours }} hour{% if backup_schedule.interval_hours != 1 %}s{% endif %}.</p>
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Recovery</p>
+                <h2>Backup Policy</h2>
+            </div>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="checkbox-row">
+                <input name="backup_enabled" type="checkbox" {% if profile.backup_enabled %}checked{% endif %}>
+                <span>Enable scheduled backup posture</span>
+            </label>
+            <label>
+                <span>Interval Hours</span>
+                <input name="backup_interval_hours" type="number" min="1" value="{{ profile.backup_interval_hours }}">
+            </label>
+            <label>
+                <span>Retention Count</span>
+                <input name="backup_retention_count" type="number" min="1" value="{{ profile.backup_retention_count }}">
+            </label>
+            <label class="checkbox-row">
+                <input name="create_backup_now" type="checkbox" value="yes">
+                <span>Create a backup immediately after saving</span>
+            </label>
+            <button class="button" type="submit">Save Backup Policy</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Restore</p>
+                <h2>Backup Library</h2>
+            </div>
+        </div>
+        <p class="empty">Restore replaces the managed <code>install</code> and <code>cache</code> folders for this profile with the contents of the selected archive.</p>
+
+        {% if backup_entries %}
+        <div class="card-stack">
+            {% for backup in backup_entries %}
+            <article class="list-card static backup-card">
+                <strong>{{ backup.name }}</strong>
+                <span>{{ backup.size_label }} | {{ backup.modified_label }}</span>
+                <small>{{ backup.path }}</small>
+                <form method="post" action="/profiles/{{ profile.id }}/backups/restore" class="grid-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="backup_name" value="{{ backup.name }}">
+                    <label class="checkbox-row">
+                        <input name="create_backup_before_restore" type="checkbox" checked>
+                        <span>Create a safety backup first</span>
+                    </label>
+                    <label class="checkbox-row">
+                        <input name="stop_before_restore" type="checkbox" checked>
+                        <span>Stop the server before restore</span>
+                    </label>
+                    <label class="checkbox-row">
+                        <input name="restart_after_restore" type="checkbox">
+                        <span>Start the server again after restore</span>
+                    </label>
+                    <label>
+                        <span>Type {{ backup_restore_keyword }} to confirm</span>
+                        <input name="confirmation_text" placeholder="{{ backup_restore_keyword }}">
+                    </label>
+                    <button class="button button-subtle" type="submit">Restore This Backup</button>
+                </form>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">No backups have been created yet.</p>
+        {% endif %}
+    </article>
+</section>
+{% elif active_page == "logs" %}
+<section class="two-up">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Logs</p>
+                <h2>Live Runtime Output</h2>
+            </div>
+        </div>
+        <pre class="log-view" data-log-view>{% if recent_logs %}{{ recent_logs|join('\n') }}{% else %}No output yet.{% endif %}</pre>
+    </article>
+
+    <article class="panel form-panel diagnostic-card diagnostic-card-{{ runtime_diagnostic.tone }}" data-diagnostic-card data-tone="{{ runtime_diagnostic.tone }}">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Console</p>
+                <h2 data-diagnostic-headline>{{ runtime_diagnostic.headline }}</h2>
+            </div>
+            <span class="pill diagnostic-pill diagnostic-pill-{{ runtime_diagnostic.tone }}" data-diagnostic-label>{{ runtime_diagnostic.label }}</span>
+        </div>
+        <p data-diagnostic-detail>{{ runtime_diagnostic.detail }}</p>
+        <p class="empty" data-diagnostic-action>{{ runtime_diagnostic.recommended_action }}</p>
+        <div class="detail-grid">
+            <div><span class="meta-label">State</span><code data-runtime-state>{{ runtime_snapshot.state }}</code></div>
+            <div><span class="meta-label">Process ID</span><code data-runtime-pid>{{ runtime_snapshot.process_id or "Not running" }}</code></div>
+            <div><span class="meta-label">Started</span><code data-runtime-started>{{ runtime_snapshot.started_at or "Not started yet" }}</code></div>
+            <div><span class="meta-label">Stopped</span><code data-runtime-stopped>{{ runtime_snapshot.stopped_at or "Still active" }}</code></div>
+        </div>
+        <p class="empty" data-runtime-reason>{{ runtime_snapshot.last_exit_reason or runtime_diagnostic.detail or "The process manager is ready." }}</p>
+        <div class="active-job-panel-inline">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Job Progress</p>
+                    <h2 data-active-job-title>{% if active_job %}{{ active_job.summary }}{% else %}No active job right now{% endif %}</h2>
+                </div>
+                <span class="pill diagnostic-pill diagnostic-pill-{% if active_job %}{{ active_job.status_tone }}{% else %}neutral{% endif %}" data-active-job-status>{% if active_job %}{{ active_job.kind_label }} | {{ active_job.status }}{% else %}Idle{% endif %}</span>
+            </div>
+            <p class="empty" data-active-job-empty {% if active_job %}hidden{% endif %}>Active install, update, and restore work will be pinned here while it is running.</p>
+            <div data-active-job-body {% if not active_job %}hidden{% endif %}>
+                <div class="job-progress" aria-hidden="true">
+                    <span class="job-progress-fill job-progress-fill-{% if active_job %}{{ active_job.status_tone }}{% else %}neutral{% endif %}" data-active-job-progress-bar style="width: {% if active_job %}{{ active_job.progress_percent }}{% else %}0{% endif %}%"></span>
+                </div>
+                <div class="detail-grid">
+                    <div><span class="meta-label">Progress</span><code data-active-job-progress>{% if active_job %}{{ active_job.progress_percent }}{% else %}0{% endif %}%</code></div>
+                    <div><span class="meta-label">Started</span><code data-active-job-started>{% if active_job %}{{ active_job.started_at_label }}{% else %}Waiting to start{% endif %}</code></div>
+                    <div><span class="meta-label">Updated</span><code data-active-job-updated>{% if active_job %}{{ active_job.updated_at_label }}{% else %}No active job{% endif %}</code></div>
+                </div>
+                <p data-active-job-detail>{% if active_job %}{{ active_job.detail }}{% else %}No detail yet.{% endif %}</p>
+            </div>
+        </div>
+
+        {% if can_manage %}
+        <form method="post" action="/profiles/{{ profile.id }}/runtime/command" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <label>
+                <span>Command</span>
+                <input name="command_text" placeholder="save, players, servermsg Hello survivors">
+            </label>
+            <button class="button" type="submit">Send Command</button>
+        </form>
+
+        <div class="action-row">
+            {% for command_value, command_label in quick_runtime_commands %}
+            <form method="post" action="/profiles/{{ profile.id }}/runtime/command">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="next_url" value="{{ request.url.path }}">
+                <input type="hidden" name="command_text" value="{{ command_value }}">
+                <button class="button button-subtle" type="submit">{{ command_label }}</button>
+            </form>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">History</p>
+                <h2>Recent Commands</h2>
+            </div>
+        </div>
+        <div class="card-stack" data-command-history>
+            {% if recent_commands %}
+                {% for command in recent_commands %}
+                <div class="list-card static command-card"><strong>{{ command }}</strong></div>
+                {% endfor %}
+            {% else %}
+            <p class="empty" data-command-history-empty>No commands have been sent through the launcher yet.</p>
+            {% endif %}
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Jobs</p>
+                <h2>Recent Runtime and Update Jobs</h2>
+            </div>
+        </div>
+        {% if profile_jobs %}
+        <div class="card-stack" data-job-list>
+            {% for job in profile_jobs %}
+            <article class="list-card static job-card job-tone-{{ job.status_tone }}{% if job.is_active %} job-card-active{% endif %}">
+                <strong>{{ job.summary }}</strong>
+                <span>{{ job.kind_label }} | {{ job.status }} | {{ job.progress_percent }}%</span>
+                <div class="job-progress" aria-hidden="true">
+                    <span class="job-progress-fill job-progress-fill-{{ job.status_tone }}" style="width: {{ job.progress_percent }}%"></span>
+                </div>
+                <small>{{ job.detail }}</small>
+                <small>Created {{ job.created_at_label }}</small>
+                <small>Updated {{ job.updated_at_label }}</small>
+                <small>Completed {{ job.completed_at_label }}</small>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card-stack" data-job-list></div>
+        <p class="empty" data-job-list-empty>No runtime or update jobs have been recorded for this profile yet.</p>
+        {% endif %}
+    </article>
+</section>
+{% elif active_page == "advanced-files" %}
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Files</p>
+            <h2>Advanced Files</h2>
+        </div>
+    </div>
+    <p class="empty">Use these raw editors when you want direct control over the live Project Zomboid files.</p>
+</section>
+
+<section class="card-stack">
+    {% for file_kind, file_meta in advanced_files.items() %}
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">{{ file_kind }}</p>
+                <h2>{{ file_meta.path }}</h2>
+            </div>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="file_kind" value="{{ file_kind }}">
+            <label>
+                <span>Content</span>
+                <textarea name="content" rows="12">{{ file_meta.content }}</textarea>
+            </label>
+            <button class="button" type="submit">Save {{ file_kind }}</button>
+        </form>
+    </article>
+    {% endfor %}
+</section>
+{% else %}
+<section class="panel">
+    <p class="empty">This page is not ready yet.</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if profile_live_enabled %}
+<script>
+(() => {
+    const root = document.querySelector("[data-profile-live-root]");
+    if (!root) {
+        return;
+    }
+
+    const liveUrl = root.dataset.liveUrl;
+    const escapeHtml = (value) => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    const formatTimestamp = (value, emptyLabel) => {
+        if (!value) {
+            return emptyLabel;
+        }
+
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return value;
+        }
+
+        return parsed.toLocaleString();
+    };
+
+    const setText = (selector, value) => {
+        document.querySelectorAll(selector).forEach((node) => {
+            node.textContent = value;
+        });
+    };
+
+    const applyToneClass = (node, prefix, tone) => {
+        if (!node) {
+            return;
+        }
+
+        Array.from(node.classList)
+            .filter((name) => name.startsWith(`${prefix}-`))
+            .forEach((name) => node.classList.remove(name));
+        node.classList.add(`${prefix}-${tone}`);
+    };
+
+    const renderDiagnostic = (diagnostic) => {
+        const tone = diagnostic?.tone || "info";
+        const label = diagnostic?.label || "Status";
+        const headline = diagnostic?.headline || "Runtime status is not available yet.";
+        const detail = diagnostic?.detail || "No detail yet.";
+        const action = diagnostic?.recommended_action || "Keep this page open for live updates.";
+
+        document.querySelectorAll("[data-diagnostic-card]").forEach((node) => {
+            node.dataset.tone = tone;
+            applyToneClass(node, "diagnostic-card", tone);
+        });
+        document.querySelectorAll("[data-diagnostic-label]").forEach((node) => {
+            node.textContent = label;
+            applyToneClass(node, "diagnostic-pill", tone);
+        });
+        setText("[data-diagnostic-headline]", headline);
+        setText("[data-diagnostic-detail]", detail);
+        setText("[data-diagnostic-action]", action);
+    };
+
+    const renderLaunchPlan = (launchPlan) => {
+        if (!launchPlan) {
+            return;
+        }
+
+        setText("[data-launch-plan-state]", launchPlan.state_label || "Unknown");
+        setText("[data-launch-plan-notes]", launchPlan.notes || "No planner notes yet.");
+        setText("[data-launch-plan-command]", launchPlan.command_label || "Blocked until files exist");
+        setText("[data-launch-plan-working-directory]", launchPlan.working_directory || "Not available");
+    };
+
+    const renderActiveJob = (job) => {
+        const hasJob = Boolean(job);
+        const tone = hasJob ? (job.status_tone || "info") : "neutral";
+        const title = hasJob ? job.summary : "No active job right now";
+        const status = hasJob ? `${job.kind_label} | ${job.status}` : "Idle";
+        const progress = hasJob ? `${job.progress_percent}%` : "0%";
+        const started = hasJob
+            ? (job.started_at_label || formatTimestamp(job.started_at, "Not started yet"))
+            : "Waiting to start";
+        const updated = hasJob
+            ? (job.updated_at_label || formatTimestamp(job.updated_at, "Unknown"))
+            : "No active job";
+        const detail = hasJob ? (job.detail || "No detail yet.") : "No detail yet.";
+
+        setText("[data-active-job-title]", title);
+        document.querySelectorAll("[data-active-job-status]").forEach((node) => {
+            node.textContent = status;
+            applyToneClass(node, "diagnostic-pill", tone);
+        });
+        setText("[data-active-job-progress]", progress);
+        setText("[data-active-job-started]", started);
+        setText("[data-active-job-updated]", updated);
+        setText("[data-active-job-detail]", detail);
+        document.querySelectorAll("[data-active-job-empty]").forEach((node) => {
+            node.hidden = hasJob;
+        });
+        document.querySelectorAll("[data-active-job-body]").forEach((node) => {
+            node.hidden = !hasJob;
+        });
+        document.querySelectorAll("[data-active-job-progress-bar]").forEach((node) => {
+            node.style.width = hasJob ? `${job.progress_percent}%` : "0%";
+            applyToneClass(node, "job-progress-fill", tone);
+        });
+    };
+
+    const renderCommands = (commands) => {
+        document.querySelectorAll("[data-command-history]").forEach((container) => {
+            if (!container) {
+                return;
+            }
+
+            if (!commands.length) {
+                container.innerHTML = '<p class="empty" data-command-history-empty>No commands have been sent through the launcher yet.</p>';
+                return;
+            }
+
+            container.innerHTML = commands
+                .map((command) => `<div class="list-card static command-card"><strong>${escapeHtml(command)}</strong></div>`)
+                .join("");
+        });
+    };
+
+    const renderJobs = (jobs) => {
+        document.querySelectorAll("[data-job-list]").forEach((container) => {
+            if (!container) {
+                return;
+            }
+
+            if (!jobs.length) {
+                container.innerHTML = "";
+                return;
+            }
+
+            container.innerHTML = jobs.map((job) => `
+                <article class="list-card static job-card job-tone-${escapeHtml(job.status_tone || "neutral")}${job.status === "queued" || job.status === "running" ? " job-card-active" : ""}">
+                    <strong>${escapeHtml(job.summary)}</strong>
+                    <span>${escapeHtml(job.kind_label || job.kind.replace(/-/g, " "))} | ${escapeHtml(job.status)} | ${escapeHtml(job.progress_percent)}%</span>
+                    <div class="job-progress" aria-hidden="true">
+                        <span class="job-progress-fill job-progress-fill-${escapeHtml(job.status_tone || "neutral")}" style="width: ${escapeHtml(job.progress_percent)}%"></span>
+                    </div>
+                    <small>${escapeHtml(job.detail || "No detail yet.")}</small>
+                    <small>Created ${escapeHtml(job.created_at_label || formatTimestamp(job.created_at, "Unknown"))}</small>
+                    <small>Updated ${escapeHtml(job.updated_at_label || formatTimestamp(job.updated_at, "Unknown"))}</small>
+                    <small>Completed ${escapeHtml(job.completed_at_label || formatTimestamp(job.completed_at, "In progress"))}</small>
+                </article>
+            `).join("");
+        });
+
+        document.querySelectorAll("[data-job-list-empty]").forEach((node) => {
+            node.style.display = jobs.length ? "none" : "";
+        });
+    };
+
+    const renderLogs = (lines) => {
+        const output = lines.length ? lines.join("\n") : "No output yet.";
+        document.querySelectorAll("[data-log-view]").forEach((node) => {
+            node.textContent = output;
+            node.scrollTop = node.scrollHeight;
+        });
+    };
+
+    let inFlight = false;
+    const refresh = async () => {
+        if (inFlight) {
+            return;
+        }
+
+        inFlight = true;
+        try {
+            const response = await fetch(liveUrl, {
+                headers: { Accept: "application/json" },
+                credentials: "same-origin",
+                cache: "no-store",
+            });
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            const runtime = payload.runtime || {};
+            const diagnostic = payload.diagnostic || {};
+            setText("[data-runtime-state]", runtime.state || "unknown");
+            setText("[data-runtime-reason]", runtime.last_exit_reason || diagnostic.detail || "The process manager is ready.");
+            setText("[data-runtime-latest]", runtime.latest_log_line || "Awaiting activity");
+            setText("[data-runtime-latest-detail]", runtime.latest_log_line || "Awaiting activity");
+            setText("[data-runtime-pid]", runtime.process_id ?? "Not running");
+            setText("[data-runtime-started]", formatTimestamp(runtime.started_at, "Not started yet"));
+            setText("[data-runtime-stopped]", formatTimestamp(runtime.stopped_at, "Still active"));
+            renderDiagnostic(diagnostic);
+            renderLaunchPlan(payload.launch_plan || {});
+            renderActiveJob(payload.active_job || null);
+            renderLogs(payload.logs || []);
+            renderCommands(payload.commands || []);
+            renderJobs(payload.jobs || []);
+        } catch (_error) {
+        } finally {
+            inFlight = false;
+        }
+    };
+
+    refresh();
+    window.setInterval(refresh, 3000);
+})();
+</script>
+{% endif %}
+{% if active_page == "mods-maps" %}
+<script>
+(() => {
+    const form = document.querySelector("[data-mods-maps-form]");
+    if (!form) {
+        return;
+    }
+
+    const fieldMap = {
+        workshop: form.querySelector('textarea[name="workshop_ids_text"]'),
+        mod: form.querySelector('textarea[name="mod_ids_text"]'),
+        map: form.querySelector('textarea[name="map_ids_text"]'),
+    };
+
+    const splitAttributeList = (value) => (value || "")
+        .split("||")
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    const normalizeList = (value) => {
+        const seen = new Set();
+        const items = [];
+        value
+            .replace(/\r\n/g, "\n")
+            .split("\n")
+            .flatMap((line) => line.split(";"))
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .forEach((item) => {
+                const lowered = item.toLowerCase();
+                if (seen.has(lowered)) {
+                    return;
+                }
+                seen.add(lowered);
+                items.push(item);
+            });
+        return items;
+    };
+
+    const renderField = (fieldName) => {
+        const textarea = fieldMap[fieldName];
+        const container = form.querySelector(`[data-list-editor="${fieldName}"]`);
+        if (!textarea || !container) {
+            return;
+        }
+
+        const items = normalizeList(textarea.value);
+        if (!items.length) {
+            container.innerHTML = '<p class="empty">No entries queued yet.</p>';
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => `
+            <div class="list-card static mods-list-card">
+                <strong>${item}</strong>
+                <div class="action-row">
+                    <button class="button button-subtle" type="button" data-list-move="${fieldName}" data-index="${index}" data-direction="-1">Up</button>
+                    <button class="button button-subtle" type="button" data-list-move="${fieldName}" data-index="${index}" data-direction="1">Down</button>
+                    <button class="button button-subtle" type="button" data-list-remove="${fieldName}" data-index="${index}">Remove</button>
+                </div>
+            </div>
+        `).join("");
+    };
+
+    const updateField = (fieldName, items) => {
+        const textarea = fieldMap[fieldName];
+        if (!textarea) {
+            return;
+        }
+        textarea.value = items.join("\n");
+        renderField(fieldName);
+    };
+
+    const appendUnique = (fieldName, items) => {
+        const current = normalizeList(fieldMap[fieldName]?.value || "");
+        const seen = new Set(current.map((item) => item.toLowerCase()));
+        items.forEach((item) => {
+            const trimmed = item.trim();
+            if (!trimmed) {
+                return;
+            }
+            const lowered = trimmed.toLowerCase();
+            if (seen.has(lowered)) {
+                return;
+            }
+            seen.add(lowered);
+            current.push(trimmed);
+        });
+        updateField(fieldName, current);
+    };
+
+    ["workshop", "mod", "map"].forEach((fieldName) => {
+        fieldMap[fieldName]?.addEventListener("input", () => renderField(fieldName));
+        renderField(fieldName);
+    });
+
+    form.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const moveButton = target.closest("[data-list-move]");
+        if (moveButton instanceof HTMLElement) {
+            const fieldName = moveButton.dataset.listMove || "";
+            const index = Number.parseInt(moveButton.dataset.index || "-1", 10);
+            const direction = Number.parseInt(moveButton.dataset.direction || "0", 10);
+            const current = normalizeList(fieldMap[fieldName]?.value || "");
+            const nextIndex = index + direction;
+            if (index >= 0 && nextIndex >= 0 && nextIndex < current.length) {
+                const [value] = current.splice(index, 1);
+                current.splice(nextIndex, 0, value);
+                updateField(fieldName, current);
+            }
+            return;
+        }
+
+        const removeButton = target.closest("[data-list-remove]");
+        if (removeButton instanceof HTMLElement) {
+            const fieldName = removeButton.dataset.listRemove || "";
+            const index = Number.parseInt(removeButton.dataset.index || "-1", 10);
+            const current = normalizeList(fieldMap[fieldName]?.value || "");
+            if (index >= 0 && index < current.length) {
+                current.splice(index, 1);
+                updateField(fieldName, current);
+            }
+        }
+    });
+
+    document.querySelectorAll("[data-queue-pack]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const workshopItems = splitAttributeList(button.getAttribute("data-workshop-ids"))
+                .concat(splitAttributeList(button.getAttribute("data-workshop-id")));
+            appendUnique("workshop", workshopItems);
+            appendUnique("mod", splitAttributeList(button.getAttribute("data-mods")));
+            appendUnique("map", splitAttributeList(button.getAttribute("data-maps")));
+        });
+    });
+
+    document.querySelectorAll("[data-queue-mods]").forEach((button) => {
+        button.addEventListener("click", () => {
+            appendUnique("mod", splitAttributeList(button.getAttribute("data-mods")));
+        });
+    });
+
+    document.querySelectorAll("[data-queue-maps]").forEach((button) => {
+        button.addEventListener("click", () => {
+            appendUnique("map", splitAttributeList(button.getAttribute("data-maps")));
+        });
+    });
+
+    document.querySelectorAll("[data-load-preset]").forEach((button) => {
+        button.addEventListener("click", () => {
+            updateField("workshop", splitAttributeList(button.getAttribute("data-workshop")));
+            updateField("mod", splitAttributeList(button.getAttribute("data-mods")));
+            updateField("map", splitAttributeList(button.getAttribute("data-maps")));
+        });
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

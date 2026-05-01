@@ -1,0 +1,23 @@
+# Example only.
+# This unit is not installed or managed by the app.
+# Adapt user, paths, environment, and restart policy to your own VPS layout.
+
+[Unit]
+Description=PZServerLauncherLinux FastAPI service
+After=network.target
+
+[Service]
+Type=simple
+User=pzlauncher
+Group=pzlauncher
+WorkingDirectory=/opt/pzserverlauncher
+Environment=PZSL_BIND_HOST=127.0.0.1
+Environment=PZSL_BIND_PORT=48231
+Environment=PZSL_DATA_ROOT=/var/lib/pzserverlauncher
+Environment=PZSL_LOGS_ROOT=/var/log/pzserverlauncher
+ExecStart=/opt/pzserverlauncher/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 48231
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

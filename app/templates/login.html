@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Remote Access</p>
+        <h1>Sign In</h1>
+        <p class="lede">The app itself can stay on <code>127.0.0.1</code> while Nginx or Caddy publishes it by domain or raw server IP.</p>
+    </div>
+</section>
+
+<section class="panel form-panel">
+    <form method="post" class="grid-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+            <span>Username</span>
+            <input name="username" autocomplete="username" required>
+        </label>
+        <label>
+            <span>Password</span>
+            <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="button" type="submit">Log In</button>
+    </form>
+</section>
+{% endblock %}

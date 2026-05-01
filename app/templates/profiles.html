@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Profiles{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Servers</p>
+        <h1>Managed Profiles</h1>
+        <p class="lede">Each profile owns its install path, cache/config path, branch selection, ports, backups, and runtime status.</p>
+    </div>
+</section>
+
+<section class="two-up">
+    <article class="panel" id="create-profile">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Fleet</p>
+                <h2>Existing Profiles</h2>
+            </div>
+        </div>
+        {% if profiles %}
+        <div class="card-stack">
+            {% for profile in profiles %}
+            <a class="list-card" href="/profiles/{{ profile.id }}/overview">
+                <strong>{{ profile.display_name }}</strong>
+                <span>{{ profile.server_name }} &middot; {{ runtime_manager.get_status(profile.id).state }}</span>
+                <small>{{ profile.install_directory }}</small>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">No profiles exist yet.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Create</p>
+                <h2>New Profile</h2>
+            </div>
+        </div>
+        {% if can_manage %}
+        <form method="post" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+                <span>Display Name</span>
+                <input name="display_name" required>
+            </label>
+            <label>
+                <span>Server Name</span>
+                <input name="server_name" value="servertest" required>
+            </label>
+            <label>
+                <span>Branch</span>
+                <select name="branch">
+                    <option value="stable">stable</option>
+                    <option value="unstable">unstable</option>
+                </select>
+            </label>
+            <label>
+                <span>Memory (GB)</span>
+                <input name="preferred_memory_gb" type="number" min="1" value="4">
+            </label>
+            <label>
+                <span>Max Players</span>
+                <input name="max_players" type="number" min="1" value="8">
+            </label>
+            <label>
+                <span>Game Port</span>
+                <input name="default_port" type="number" min="1" max="65535" value="16261">
+            </label>
+            <label>
+                <span>UDP Port</span>
+                <input name="udp_port" type="number" min="1" max="65535" value="16262">
+            </label>
+            <button class="button" type="submit">Create Profile</button>
+        </form>
+        {% else %}
+        <p class="empty">Your current role can view profiles but cannot create them.</p>
+        {% endif %}
+    </article>
+</section>
+
+<section class="panel" id="import-intake">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Import Intake</p>
+            <h2>Local Server Discovery</h2>
+        </div>
+        <form method="post" action="/profiles/imports/scan">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next_url" value="/profiles">
+            <button class="button button-subtle" type="submit">Scan Imports</button>
+        </form>
+    </div>
+    <p class="lede">Scan common Zomboid cache roots on this VPS and adopt an existing server footprint without copying or deleting its files.</p>
+    <p class="empty">{{ import_scan_summary }}</p>
+
+    {% if import_candidates %}
+    <div class="card-stack">
+        {% for candidate in import_candidates %}
+        <article class="list-card static import-card">
+            <div class="import-card-header">
+                <div>
+                    <strong>{{ candidate.display_name }}</strong>
+                    <span>{{ candidate.server_name }} &middot; {{ candidate.branch }}</span>
+                </div>
+                <div class="import-card-actions">
+                    {% if candidate.matching_profile_id %}
+                    <a class="button button-subtle" href="/profiles/{{ candidate.matching_profile_id }}/overview">Open Profile</a>
+                    {% endif %}
+                    {% if can_manage %}
+                    <form method="post" action="/profiles/imports/{{ candidate.candidate_id }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="next_url" value="/profiles">
+                        <button class="button{% if candidate.is_already_imported or not candidate.can_import %} button-subtle{% endif %}" type="submit" {% if candidate.is_already_imported or not candidate.can_import %}disabled{% endif %}>
+                            {% if candidate.is_already_imported %}Imported{% else %}Import{% endif %}
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="import-pill-row">
+                <span class="pill">{{ candidate.workshop_ids|length }} workshop</span>
+                <span class="pill">{{ candidate.mod_ids|length }} mods</span>
+                <span class="pill">{{ candidate.map_ids|length }} maps</span>
+                <span class="pill">{{ candidate.default_port }}/{{ candidate.udp_port }}</span>
+                {% if candidate.is_already_imported %}
+                <span class="pill">Already managed</span>
+                {% elif not candidate.can_import %}
+                <span class="pill">Blocked</span>
+                {% else %}
+                <span class="pill">Ready</span>
+                {% endif %}
+            </div>
+
+            <small><strong>Cache:</strong> {{ candidate.cache_directory }}</small>
+            <small><strong>Install:</strong> {{ candidate.install_directory or "Managed install folder will be used until you point the profile at the right server path." }}</small>
+
+            {% if candidate.diagnostics %}
+            <ul class="import-diagnostics">
+                {% for item in candidate.diagnostics %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

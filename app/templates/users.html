@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+    <div>
+        <p class="eyebrow">Access Control</p>
+        <h1>Users</h1>
+        <p class="lede">Keep the owner account rare, use admins for configuration work, operators for day-to-day control, and viewers for read-only access.</p>
+    </div>
+</section>
+
+<section class="stats-grid">
+    <article class="panel stat-card">
+        <span class="stat-label">Accounts</span>
+        <strong class="stat-value">{{ users|length }}</strong>
+        <p>{{ active_owner_count }} active owner account(s) currently protect the panel.</p>
+    </article>
+    <article class="panel stat-card">
+        <span class="stat-label">Safety</span>
+        <strong class="stat-value">Admin managed</strong>
+        <p>Deactivated users are logged out automatically, and the last active owner cannot be demoted or disabled.</p>
+    </article>
+</section>
+
+<section class="two-up">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Accounts</p>
+                <h2>Existing Users</h2>
+            </div>
+        </div>
+        {% if users %}
+        <div class="card-stack">
+            {% for item in users %}
+            <div class="list-card static">
+                <strong>{{ item.display_name }}</strong>
+                <span>{{ item.username }} | {{ item.role }} | {{ "active" if item.is_active else "inactive" }}</span>
+                <small>Last login: {{ item.last_login_at.strftime("%Y-%m-%d %H:%M:%S UTC") if item.last_login_at else "Never" }}</small>
+                <form method="post" action="/users/{{ item.id }}" class="grid-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label>
+                        <span>Display Name</span>
+                        <input name="display_name" value="{{ item.display_name }}" required>
+                    </label>
+                    <label>
+                        <span>Role</span>
+                        <select name="role">
+                            {% for role_value, role_label in user_role_options %}
+                            <option value="{{ role_value }}" {% if item.role == role_value %}selected{% endif %}>{{ role_label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>
+                        <span>Reset Password</span>
+                        <input name="password" type="password" placeholder="Leave blank to keep current password">
+                    </label>
+                    <label class="checkbox-row">
+                        <input name="is_active" type="checkbox" {% if item.is_active %}checked{% endif %}>
+                        <span>Account is active</span>
+                    </label>
+                    <button class="button button-subtle" type="submit">Save User</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">Only the bootstrap owner exists so far.</p>
+        {% endif %}
+    </article>
+
+    <article class="panel form-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Create</p>
+                <h2>New User</h2>
+            </div>
+        </div>
+        <form method="post" class="grid-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+                <span>Username</span>
+                <input name="username" required>
+            </label>
+            <label>
+                <span>Display Name</span>
+                <input name="display_name" required>
+            </label>
+            <label>
+                <span>Password</span>
+                <input name="password" type="password" required>
+            </label>
+            <label>
+                <span>Role</span>
+                <select name="role">
+                    {% for role_value, role_label in user_role_options %}
+                    <option value="{{ role_value }}" {% if role_value == "Owner" %}disabled{% endif %}>{{ role_label }}{% if role_value == "Owner" %} (owner only){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button" type="submit">Create User</button>
+        </form>
+    </article>
+</section>
+{% endblock %}

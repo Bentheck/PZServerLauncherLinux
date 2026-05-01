@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}PZServerLauncherLinux{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='app.css') }}">
+</head>
+<body>
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+    <div class="shell">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">Ubuntu VPS Control</p>
+                <a class="brand" href="/dashboard">PZServerLauncherLinux</a>
+            </div>
+            {% if current_user %}
+            <div class="topbar-actions">
+                <span class="pill">{{ current_user.role }}</span>
+                <span class="mono">Signed in as {{ current_user.username }}</span>
+                <form method="post" action="/logout">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="button button-subtle" type="submit">Log Out</button>
+                </form>
+            </div>
+            {% endif %}
+        </header>
+
+        {% if current_user %}
+        <nav class="nav">
+            <a href="/dashboard">Dashboard</a>
+            <a href="/profiles">Profiles</a>
+            <a href="/consoles">Consoles</a>
+            <a href="/host">Host</a>
+            <a href="/remote">Remote</a>
+            <a href="/users">Users</a>
+        </nav>
+        {% endif %}
+
+        {% if flashes %}
+        <section class="flash-stack">
+            {% for item in flashes %}
+            <article class="flash flash-{{ item.kind }}">{{ item.message }}</article>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <main class="content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
