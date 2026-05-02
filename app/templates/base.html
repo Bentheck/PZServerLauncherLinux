@@ -19,6 +19,12 @@
                 <p class="eyebrow">Ubuntu VPS Control</p>
                 <a class="brand" href="/dashboard">PZServerLauncherLinux</a>
             </div>
+            {% if request.session.get("user_id") %}
+            <div class="topbar-support">
+                <span class="support-caption">Like what I'm doing?</span>
+                <a class="support-link" href="https://buymeacoffee.com/bentheck" target="_blank" rel="noopener noreferrer">&#9749; Buy me a coffee</a>
+            </div>
+            {% endif %}
             {% if current_user %}
             <div class="topbar-actions">
                 <span class="pill">{{ current_user.role }}</span>

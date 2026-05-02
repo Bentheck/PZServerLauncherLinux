@@ -1,95 +1,141 @@
-# Ubuntu Manual Deployment Notes
+# Ubuntu Setup
 
-## Summary
+Use the `.deb` for the normal VPS install. It sets up the app, SteamCMD, folders, service user, and `systemd` service.
 
-This project no longer assumes a one-command VPS installer.
+Manual install is only for users who do not want the `.deb` and know what they are doing.
 
-Recommended production shape is still:
+## Build
 
-`Internet -> Your reverse proxy -> 127.0.0.1:48231 -> PZServerLauncherLinux`
+Build on Linux:
 
-But the app does not try to own:
+```bash
+./scripts/build-deb.sh
+```
 
-- package installation on the server
-- user or group creation
-- reverse proxy authoring
-- `systemd` registration
-- certificate management
+Output:
 
-That is left to the operator.
+```text
+dist/pzserverlauncherlinux_0.1.0_all.deb
+```
 
-## Base Requirements
-
-Typical Ubuntu requirements are:
-
-- Python 3.12+
-- a place to store the app package or source checkout
-- a process manager if you want background hosting
-- a reverse proxy if you want public HTTPS
-
-Project Zomboid-specific requirements usually include:
-
-- SteamCMD
-- the dedicated server files for app id `380870`
-
-## Basic Ubuntu Setup
-
-This is the simple manual setup path, and it is the closest equivalent to the old installer script without forcing one VPS layout on every user.
-
-### 1. Install the base packages
+## Install
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y software-properties-common
 sudo dpkg --add-architecture i386
-sudo add-apt-repository multiverse
+sudo add-apt-repository -y multiverse
+sudo apt-get update
+sudo apt install ./dist/pzserverlauncherlinux_0.1.0_all.deb
+```
+
+The package:
+
+- installs the app in `/opt/pzserverlauncher`
+- installs SteamCMD
+- installs Python runtime dependencies
+- creates user `pzlauncher`
+- creates `/var/lib/pzserverlauncher`
+- creates `/var/log/pzserverlauncher`
+- installs command `pzserverlauncherlinux`
+- registers `pzserverlauncherlinux.service`
+
+## Service
+
+The package installs a `systemd` service. `systemd` is Ubuntu's background service manager.
+
+It does not start automatically after install.
+
+```bash
+sudo systemctl start pzserverlauncherlinux
+sudo systemctl enable pzserverlauncherlinux
+```
+
+Useful commands:
+
+```bash
+sudo systemctl status pzserverlauncherlinux
+sudo systemctl restart pzserverlauncherlinux
+journalctl -u pzserverlauncherlinux -f
+```
+
+## First Setup
+
+The app listens on the VPS at `127.0.0.1:48231`. That address is private to the VPS.
+
+From your computer:
+
+```bash
+ssh -L 48231:127.0.0.1:48231 user@server
+```
+
+Then open:
+
+```text
+http://127.0.0.1:48231
+```
+
+## Remote Access
+
+For normal remote access, reverse proxy public traffic to `127.0.0.1:48231`.
+
+Examples:
+
+- [Nginx](nginx.md)
+- [Caddy](caddy.md)
+
+## SteamCMD
+
+SteamCMD is installed automatically as a package dependency.
+
+## Manual Install
+
+Use this only if you do not want the `.deb` and know what you are doing.
+
+You must provide:
+
+- Python 3.10+
+- SteamCMD
+- data and log folders
+- a process manager, if you want background hosting
+- a reverse proxy, if you want normal remote access
+
+Install packages:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y software-properties-common
+sudo dpkg --add-architecture i386
+sudo add-apt-repository -y multiverse
 sudo apt-get update
 sudo apt-get install -y python3 python3-venv python3-pip steamcmd
 ```
 
-If you want remote web access, also install the reverse proxy you plan to use, such as `nginx` or `caddy`.
-
-### 2. Put the app on disk
-
-Pick a location you control, for example:
+Create folders:
 
 ```bash
-sudo mkdir -p /opt/pzserverlauncher
-sudo chown -R "$USER":"$USER" /opt/pzserverlauncher
+sudo mkdir -p /opt/pzserverlauncher /var/lib/pzserverlauncher /var/log/pzserverlauncher
+sudo chown -R "$USER":"$USER" /opt/pzserverlauncher /var/lib/pzserverlauncher /var/log/pzserverlauncher
+cd /opt/pzserverlauncher
 ```
 
-Then either extract a release artifact there or clone the repo there.
-
-### 3. Install the package
-
-From a source checkout:
+Install from source:
 
 ```bash
-cd /opt/pzserverlauncher
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e .
 ```
 
-From a built wheel:
+Or install from wheel:
 
 ```bash
-cd /opt/pzserverlauncher
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install ./dist/pzserverlauncherlinux-*.whl
 ```
 
-### 4. Create the data and log folders
-
-```bash
-sudo mkdir -p /var/lib/pzserverlauncher /var/log/pzserverlauncher
-sudo chown -R "$USER":"$USER" /var/lib/pzserverlauncher /var/log/pzserverlauncher
-```
-
-If you run the service as another account, assign ownership to that account instead.
-
-### 5. Start the app
+Run:
 
 ```bash
 export PZSL_DATA_ROOT=/var/lib/pzserverlauncher
@@ -97,53 +143,10 @@ export PZSL_LOGS_ROOT=/var/log/pzserverlauncher
 pzserverlauncherlinux --host 127.0.0.1 --port 48231
 ```
 
-Then visit `http://127.0.0.1:48231` locally and complete the owner bootstrap flow.
+For first setup on a VPS:
 
-### 6. Make it persistent if you want
+```bash
+ssh -L 48231:127.0.0.1:48231 user@server
+```
 
-Use whatever you already trust on that VPS.
-
-Examples:
-
-- `systemd`
-- Docker / Compose
-- Supervisor
-- `screen`
-- `tmux`
-
-The sample unit under `systemd/pzserverlauncher.service` is just an example you can adapt.
-
-## Process Manager
-
-Use whatever you already trust on that VPS.
-
-Examples:
-
-- `systemd`
-- Docker / Compose
-- Supervisor
-- `screen`
-- `tmux`
-
-The sample unit under `systemd/pzserverlauncher.service` is now just an example, not the expected install path.
-
-## Reverse Proxy
-
-Use the proxy layout that already fits your server.
-
-Examples in this repo:
-
-- [Nginx example](nginx.md)
-- [Caddy example](caddy.md)
-
-If the VPS already serves other sites, the cleanest option is usually:
-
-- keep this app on `127.0.0.1:48231`
-- add another reverse-proxy site or location
-- avoid changing the rest of your existing stack unless you want to
-
-## Notes
-
-- Default managed directories still live under the configured data root.
-- The Linux launch planner still expects `start-server.sh` when starting a managed server.
-- IP-only access still works if your proxy setup supports it.
+Then open `http://127.0.0.1:48231` on your own computer.

@@ -26,6 +26,7 @@ from app.models import AuditEntry, HostSettings, JobStatus, OperationJob, Server
 from app.security import InMemoryRateLimiter, ensure_password_policy, hash_password, slugify, verify_password
 from app.services.audit import record_audit
 from app.services.config_files import FlatIniDocument
+from app.services.imports import LocalServerImportService
 from app.services.profile_live import build_runtime_diagnostic, find_active_job, serialize_job, serialize_launch_plan
 from app.services.runtime import InstallJobOptions
 
@@ -53,6 +54,8 @@ QUICK_RUNTIME_COMMANDS = [
 ]
 
 CONSOLE_SLOT_COUNT = 4
+IMPORT_CACHE_SESSION_KEY = "import_cache_directory"
+IMPORT_INSTALL_SESSION_KEY = "import_install_directory"
 
 BRANCH_OPTIONS = [
     ("stable", "Stable"),
@@ -192,8 +195,29 @@ def count_active_owners(db: Session) -> int:
     )
 
 
+def get_import_probe_paths(request: Request) -> tuple[str, str]:
+    return (
+        str(request.session.get(IMPORT_CACHE_SESSION_KEY, "") or ""),
+        str(request.session.get(IMPORT_INSTALL_SESSION_KEY, "") or ""),
+    )
+
+
+def build_import_service(request: Request) -> LocalServerImportService:
+    cache_directory, install_directory = get_import_probe_paths(request)
+    if cache_directory.strip():
+        install_directories = [Path(install_directory)] if install_directory.strip() else []
+        return LocalServerImportService(
+            request.app.state.settings,
+            request.app.state.config_service,
+            cache_roots=[Path(cache_directory)],
+            install_directories=install_directories,
+        )
+
+    return request.app.state.import_service
+
+
 def discover_import_candidates(request: Request, profiles: list[ServerProfile]):
-    return request.app.state.import_service.discover(profiles)
+    return build_import_service(request).discover(profiles)
 
 
 def safe_next_url(candidate: str | None, fallback: str) -> str:
@@ -480,19 +504,19 @@ def build_dashboard_summary(request: Request, db: Session, user: User) -> dict[s
     has_import_candidates = bool(import_candidates)
 
     if has_import_candidates:
-        setup_mode_headline = "Adopt an existing local server or start a new managed one."
+        setup_mode_headline = "Import the loaded server or start a new managed one."
         setup_mode_summary = (
-            "A local Project Zomboid footprint is already on this machine. Import it if you want to keep its files, "
+            "A Project Zomboid footprint has been loaded from the path you supplied. Import it if you want to keep its files, "
             "or create a clean managed server instead."
         )
         setup_primary_action_label = "Review Imports"
         setup_primary_action_href = "/profiles#import-intake"
-        setup_secondary_action_label = "Scan Again"
+        setup_secondary_action_label = "Point To Server"
         current_focus_summary = (
-            f"{len(import_candidates)} local server candidate(s) are ready for intake. "
+            f"{len(import_candidates)} import candidate(s) are ready for intake. "
             "Bring one under management first, then verify install, backup, and launch posture before the first live boot."
         )
-        current_focus_hint = "Import first if you already have a footprint. Create first if you want a clean managed server."
+        current_focus_hint = "Import first if you already have a server path. Create first if you want a clean managed server."
         next_step_summary = "Review the import candidates next, then open the imported profile and confirm install, cache, and recovery posture."
     elif profiles:
         setup_mode_headline = "Bring the next server online or tighten the fleet."
@@ -501,7 +525,7 @@ def build_dashboard_summary(request: Request, db: Session, user: User) -> dict[s
         )
         setup_primary_action_label = "Open Profiles"
         setup_primary_action_href = "/profiles"
-        setup_secondary_action_label = "Scan Imports"
+        setup_secondary_action_label = "Point To Import"
         current_focus_summary = (
             "This is now a real fleet board. Use it to decide what to launch, repair, or tighten next across the managed servers."
         )
@@ -519,15 +543,15 @@ def build_dashboard_summary(request: Request, db: Session, user: User) -> dict[s
     else:
         setup_mode_headline = "Start with a new managed server or adopt a local one."
         setup_mode_summary = (
-            "No managed servers exist yet. Create the first profile for a clean setup, or scan the machine to adopt an existing local host."
+            "No managed servers exist yet. Create the first profile for a clean setup, or point the launcher at an existing server cache."
         )
         setup_primary_action_label = "Create First Profile"
         setup_primary_action_href = "/profiles#create-profile"
-        setup_secondary_action_label = "Scan Imports"
+        setup_secondary_action_label = "Point To Import"
         current_focus_summary = (
             "The fastest path is create or import, install the dedicated server footprint, capture a first backup, then finish tuning before launch."
         )
-        current_focus_hint = "Create First Profile starts from scratch. Scan Imports looks for local Zomboid footprints you can adopt."
+        current_focus_hint = "Create First Profile starts from scratch. Import uses the exact cache/install paths you provide."
         next_step_summary = "Create or import the first profile to start building a real server fleet."
 
     can_manage_profiles = role_allows(user, UserRole.operator)
@@ -602,9 +626,9 @@ def build_dashboard_summary(request: Request, db: Session, user: User) -> dict[s
         "app_workspace_summary": app_workspace_summary,
         "consoles_workspace_summary": consoles_workspace_summary,
         "import_summary": (
-            f"{len(import_candidates)} local import candidate(s) discovered."
+            f"{len(import_candidates)} import candidate(s) loaded."
             if import_candidates
-            else "No import candidates are loaded yet. Run discovery to scan local Zomboid directories."
+            else "No import candidates are loaded yet. Open Profiles and enter an existing server cache path."
         ),
         "recent_job_summary": (
             f"{len(jobs)} recent job(s) recorded."
@@ -613,7 +637,7 @@ def build_dashboard_summary(request: Request, db: Session, user: User) -> dict[s
         ),
         "can_manage_profiles": can_manage_profiles,
         "dashboard_steps": [
-            "Step 1: Create a starter profile or import a local server footprint.",
+            "Step 1: Create a starter profile or import a server path you provide.",
             "Step 2: Confirm install, cache, branch, and backup posture.",
             "Step 3: Tune settings, capture a restore point, then launch and watch the runtime live.",
         ],
@@ -954,13 +978,17 @@ def setup_submit(
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
     validate_csrf(request, csrf_token)
-    auth_limiter.check(f"setup:{request.client.host if request.client else 'unknown'}")
+    try:
+        auth_limiter.check(f"setup:{request.client.host if request.client else 'unknown'}")
+        ensure_password_policy(password)
+    except ValueError as exc:
+        flash(request, "error", str(exc))
+        return redirect("/setup")
 
     if has_any_users(db):
         flash(request, "warning", "Owner bootstrap is already complete.")
         return redirect("/login")
 
-    ensure_password_policy(password)
     user = User(
         username=username.strip(),
         display_name=display_name.strip() or username.strip(),
@@ -1006,7 +1034,11 @@ def login_submit(
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
     validate_csrf(request, csrf_token)
-    auth_limiter.check(f"login:{request.client.host if request.client else 'unknown'}")
+    try:
+        auth_limiter.check(f"login:{request.client.host if request.client else 'unknown'}")
+    except ValueError as exc:
+        flash(request, "error", str(exc))
+        return redirect("/login")
 
     user = db.scalar(select(User).where(User.username == username.strip()))
     if user is None or not verify_password(password, user.password_hash):
@@ -1057,10 +1089,12 @@ def profiles_page(request: Request, db: Session = Depends(get_db)) -> HTMLRespon
         can_manage=role_allows(user, UserRole.operator),
         import_candidates=import_candidates,
         import_candidate_count=len(import_candidates),
+        import_cache_directory=get_import_probe_paths(request)[0],
+        import_install_directory=get_import_probe_paths(request)[1],
         import_scan_summary=(
-            f"{len(import_candidates)} local server candidate(s) are ready for intake."
+            f"{len(import_candidates)} import candidate(s) loaded from the supplied path."
             if import_candidates
-            else "No local server candidates were found in the usual Zomboid locations yet."
+            else "Enter the existing server cache path to load import candidates. Example: /home/pz/Zomboid"
         ),
     )
 
@@ -1118,18 +1152,32 @@ def profiles_import_scan(
     db: Session = Depends(get_db),
     csrf_token: str = Form(...),
     next_url: str = Form(""),
+    cache_directory: str = Form(""),
+    install_directory: str = Form(""),
 ) -> RedirectResponse:
     validate_csrf(request, csrf_token)
     user = current_user_or_redirect(request, db, UserRole.viewer)
     if isinstance(user, RedirectResponse):
         return user
 
+    normalized_cache = cache_directory.strip()
+    normalized_install = install_directory.strip()
+    if normalized_cache:
+        request.session[IMPORT_CACHE_SESSION_KEY] = normalized_cache
+        if normalized_install:
+            request.session[IMPORT_INSTALL_SESSION_KEY] = normalized_install
+        else:
+            request.session.pop(IMPORT_INSTALL_SESSION_KEY, None)
+    elif not request.session.get(IMPORT_CACHE_SESSION_KEY):
+        flash(request, "error", "Enter the existing server cache path before loading imports.")
+        return redirect(safe_next_url(next_url, "/profiles"))
+
     profiles = db.scalars(select(ServerProfile).order_by(ServerProfile.display_name)).all()
     candidates = discover_import_candidates(request, profiles)
     if candidates:
-        flash(request, "success", f"Found {len(candidates)} local import candidate(s).")
+        flash(request, "success", f"Loaded {len(candidates)} import candidate(s).")
     else:
-        flash(request, "warning", "No local import candidates were found in the usual Zomboid locations.")
+        flash(request, "warning", "No server .ini files were found under the supplied cache path.")
     return redirect(safe_next_url(next_url, "/profiles"))
 
 
@@ -1149,7 +1197,7 @@ def profiles_import_candidate(
     fallback_url = safe_next_url(next_url, "/profiles")
 
     existing_profiles = db.scalars(select(ServerProfile).order_by(ServerProfile.display_name)).all()
-    import_service = request.app.state.import_service
+    import_service = build_import_service(request)
     candidate = import_service.get_candidate(candidate_id, existing_profiles)
     if candidate is None:
         flash(request, "error", "The selected import candidate could not be found.")

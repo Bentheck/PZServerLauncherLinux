@@ -236,13 +236,16 @@ class ProjectZomboidConfigService:
         paths = self.raw_file_paths(profile)
         paths["ini"].parent.mkdir(parents=True, exist_ok=True)
         for key, path in paths.items():
-            if path.exists():
+            if key == "ini" and not path.exists():
+                path.write_text(self._default_ini_text(profile), encoding="utf-8")
                 continue
 
             if key == "ini":
-                path.write_text(self._default_ini_text(profile), encoding="utf-8")
-            else:
-                path.write_text("", encoding="utf-8")
+                self._repair_ini_defaults(path)
+                continue
+
+            if not path.exists() or path.stat().st_size == 0:
+                path.write_text(self._default_lua_text(key), encoding="utf-8")
 
     def raw_file_paths(self, profile: ServerProfile) -> dict[str, Path]:
         server_root = Path(profile.cache_directory) / "Server"
@@ -252,6 +255,9 @@ class ProjectZomboidConfigService:
             "spawnregions": server_root / f"{profile.server_name}_spawnregions.lua",
             "spawnpoints": server_root / f"{profile.server_name}_spawnpoints.lua",
         }
+
+    def launcher_secrets_path(self, profile: ServerProfile) -> Path:
+        return Path(profile.cache_directory) / "Server" / f"{profile.server_name}_LauncherSecrets.ini"
 
     def load_general_settings(self, profile: ServerProfile) -> dict[str, object]:
         doc = self._load_ini(profile)
@@ -360,7 +366,8 @@ class ProjectZomboidConfigService:
         doc = self._load_ini(profile)
         password_value = doc.get("Password", "") or ""
         rcon_password_value = doc.get("RCONPassword", "") or ""
-        admin_password_value = doc.get("AdminPassword", "") or ""
+        launcher_secrets = self._load_launcher_secrets(profile)
+        admin_password_value = launcher_secrets.get("AdminPassword", doc.get("AdminPassword", "") or "")
         return {
             "bind_ip": doc.get("BindIP", profile.bind_ip) or profile.bind_ip,
             "rcon_port": doc.get("RCONPort", "27015") or "27015",
@@ -394,7 +401,7 @@ class ProjectZomboidConfigService:
             "voice_min_distance": doc.get("VoiceMinDistance", "10.0") or "10.0",
             "voice_max_distance": doc.get("VoiceMaxDistance", "100.0") or "100.0",
             "minutes_per_page": doc.get("MinutesPerPage", "1") or "1",
-            "admin_username": doc.get("AdminUsername", "") or "",
+            "admin_username": launcher_secrets.get("AdminUsername", doc.get("AdminUsername", "") or "") or "",
             "steam_mode": profile.use_steam,
             "has_server_password": bool(password_value.strip()),
             "has_rcon_password": bool(rcon_password_value.strip()),
@@ -405,7 +412,8 @@ class ProjectZomboidConfigService:
         doc = self._load_ini(profile)
         existing_password = doc.get("Password", "") or ""
         existing_rcon_password = doc.get("RCONPassword", "") or ""
-        existing_admin_password = doc.get("AdminPassword", "") or ""
+        launcher_secrets = self._load_launcher_secrets(profile)
+        existing_admin_password = launcher_secrets.get("AdminPassword", doc.get("AdminPassword", "") or "")
 
         def normalized_text(key: str, default: str = "") -> str:
             raw = str(values[key]).strip()
@@ -417,8 +425,11 @@ class ProjectZomboidConfigService:
 
         doc.set("Password", submitted_password if submitted_password else existing_password)
         doc.set("RCONPassword", submitted_rcon_password if submitted_rcon_password else existing_rcon_password)
-        doc.set("AdminPassword", submitted_admin_password if submitted_admin_password else existing_admin_password)
-        doc.set("AdminUsername", normalized_text("admin_username"))
+        self._save_launcher_secrets(
+            profile,
+            admin_username=normalized_text("admin_username"),
+            admin_password=submitted_admin_password if submitted_admin_password else existing_admin_password,
+        )
         doc.set("BindIP", normalized_text("bind_ip"))
         doc.set("RCONPort", normalized_text("rcon_port", "27015"))
         doc.set("Tag", normalized_text("server_tag"))
@@ -454,6 +465,26 @@ class ProjectZomboidConfigService:
         profile.use_steam = bool(values["steam_mode"])
         profile.bind_ip = normalized_text("bind_ip", "0.0.0.0")
         return self._save_ini(profile, doc)
+
+    def _load_launcher_secrets(self, profile: ServerProfile) -> dict[str, str]:
+        path = self.launcher_secrets_path(profile)
+        if not path.exists():
+            return {}
+
+        document = FlatIniDocument.parse(path.read_text(encoding="utf-8"))
+        return {
+            "AdminUsername": document.get("AdminUsername", "") or "",
+            "AdminPassword": document.get("AdminPassword", "") or "",
+        }
+
+    def _save_launcher_secrets(self, profile: ServerProfile, *, admin_username: str, admin_password: str) -> Path:
+        path = self.launcher_secrets_path(profile)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        document = FlatIniDocument.parse(path.read_text(encoding="utf-8") if path.exists() else "")
+        document.set("AdminUsername", admin_username)
+        document.set("AdminPassword", admin_password)
+        path.write_text(document.to_text(), encoding="utf-8")
+        return path
 
     def load_mods_maps(self, profile: ServerProfile) -> dict[str, object]:
         doc = self._load_ini(profile)
@@ -844,14 +875,14 @@ class ProjectZomboidConfigService:
                 "AllowTradeUI=true",
                 "WorkshopItems=",
                 "Mods=",
-                "Map=",
+                "Map=Muldraugh, KY",
                 "BindIP=0.0.0.0",
                 "Password=",
                 "RCONPort=27015",
                 "RCONPassword=",
                 "Tag=",
                 "ResetID=0",
-                "UPnP=true",
+                "UPnP=false",
                 "AutoCreateUserInWhiteList=false",
                 "DoLuaChecksum=true",
                 "PingLimit=250",
@@ -887,6 +918,52 @@ class ProjectZomboidConfigService:
                 "",
             ]
         )
+
+    def _repair_ini_defaults(self, path: Path) -> None:
+        document = FlatIniDocument.parse(path.read_text(encoding="utf-8"))
+        changed = False
+        if not (document.get("Map", "") or "").strip():
+            document.set("Map", "Muldraugh, KY")
+            changed = True
+
+        if changed:
+            path.write_text(document.to_text(), encoding="utf-8")
+
+    def _default_lua_text(self, key: str) -> str:
+        if key == "sandbox":
+            return "\n".join(
+                [
+                    'SandboxVars = require "Sandbox/Apocalypse"',
+                    "",
+                    "-- This is needed to add custom sandbox options to the SandboxVars table.",
+                    "getSandboxOptions():initSandboxVars()",
+                    "",
+                ]
+            )
+
+        if key == "spawnregions":
+            return "\n".join(
+                [
+                    "function SpawnRegions()",
+                    "    return {",
+                    '        { name = "Muldraugh, KY", file = "media/maps/Muldraugh, KY/spawnpoints.lua" },',
+                    "    }",
+                    "end",
+                    "",
+                ]
+            )
+
+        if key == "spawnpoints":
+            return "\n".join(
+                [
+                    "function SpawnPoints()",
+                    "    return {}",
+                    "end",
+                    "",
+                ]
+            )
+
+        return ""
 
     def _candidate_workshop_roots(self, profile: ServerProfile) -> list[Path]:
         install_dir = Path(profile.install_directory)

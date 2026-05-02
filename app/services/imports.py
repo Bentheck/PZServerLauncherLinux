@@ -45,6 +45,27 @@ def _parse_int(value: str | None, fallback: int) -> int:
         return fallback
 
 
+def _path_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def _iter_dirs(path: Path) -> list[Path]:
+    try:
+        return [item for item in path.iterdir() if item.is_dir()]
+    except OSError:
+        return []
+
+
+def _glob_files(path: Path, pattern: str) -> list[Path]:
+    try:
+        return list(path.glob(pattern))
+    except OSError:
+        return []
+
+
 @dataclass(frozen=True, slots=True)
 class ImportCandidate:
     candidate_id: str
@@ -105,15 +126,19 @@ class LocalServerImportService:
         candidates: list[ImportCandidate] = []
         for cache_root in self._discover_cache_roots():
             server_directory = cache_root / "Server"
-            if not server_directory.exists():
+            if not _path_exists(server_directory):
                 continue
 
-            for ini_path in sorted(server_directory.glob("*.ini"), key=lambda path: path.name.lower()):
+            for ini_path in sorted(_glob_files(server_directory, "*.ini"), key=lambda path: path.name.lower()):
                 server_name = ini_path.stem.strip()
                 if not server_name:
                     continue
 
-                document = FlatIniDocument.parse(ini_path.read_text(encoding="utf-8", errors="replace"))
+                try:
+                    document = FlatIniDocument.parse(ini_path.read_text(encoding="utf-8", errors="replace"))
+                except OSError:
+                    continue
+
                 public_name = (document.get("PublicName", "") or "").strip()
                 workshop_ids = _parse_list(document.get("WorkshopItems", ""), allow_comma_fallback=True)
                 mod_ids = _parse_list(document.get("Mods", ""))
@@ -237,17 +262,14 @@ class LocalServerImportService:
         if self._cache_roots_override is not None:
             return self._dedupe_paths(self._cache_roots_override)
 
-        roots: list[Path] = [Path.home() / "Zomboid"]
         if os.name != "nt":
-            roots.append(Path("/root/Zomboid"))
-            homes_root = Path("/home")
-            if homes_root.exists():
-                for home_dir in sorted(homes_root.iterdir(), key=lambda path: path.name.lower()):
-                    roots.append(home_dir / "Zomboid")
+            return []
+
+        roots: list[Path] = [Path.home() / "Zomboid"]
 
         servers_root = self.settings.servers_root
-        if servers_root.exists():
-            for profile_root in sorted(servers_root.iterdir(), key=lambda path: path.name.lower()):
+        if _path_exists(servers_root):
+            for profile_root in sorted(_iter_dirs(servers_root), key=lambda path: path.name.lower()):
                 roots.append(profile_root / "cache")
 
         return self._dedupe_paths(roots)
@@ -261,10 +283,13 @@ class LocalServerImportService:
             ]
             return self._dedupe_install_probes(probes)
 
+        if os.name != "nt":
+            return []
+
         candidate_paths: list[Path] = []
         servers_root = self.settings.servers_root
-        if servers_root.exists():
-            for profile_root in sorted(servers_root.iterdir(), key=lambda path: path.name.lower()):
+        if _path_exists(servers_root):
+            for profile_root in sorted(_iter_dirs(servers_root), key=lambda path: path.name.lower()):
                 candidate_paths.append(profile_root / "install")
 
         candidate_paths.extend(self._common_install_paths())
@@ -284,8 +309,8 @@ class LocalServerImportService:
         roots = [Path.home()]
         if os.name != "nt":
             homes_root = Path("/home")
-            if homes_root.exists():
-                roots.extend(sorted(homes_root.iterdir(), key=lambda path: path.name.lower()))
+            if _path_exists(homes_root):
+                roots.extend(sorted(_iter_dirs(homes_root), key=lambda path: path.name.lower()))
             roots.append(Path("/root"))
 
         results: list[Path] = []
@@ -369,7 +394,7 @@ class LocalServerImportService:
 
     @staticmethod
     def _looks_like_install(path: Path) -> bool:
-        return (path / "start-server.sh").exists() or (path / "StartServer.sh").exists()
+        return _path_exists(path / "start-server.sh") or _path_exists(path / "StartServer.sh")
 
     @staticmethod
     def _detect_branch(install_directory: Path) -> str:
@@ -378,9 +403,12 @@ class LocalServerImportService:
             install_directory.parent / "appmanifest_380870.acf",
         ]
         for manifest_path in manifest_candidates:
-            if not manifest_path.exists():
+            if not _path_exists(manifest_path):
                 continue
-            content = manifest_path.read_text(encoding="utf-8", errors="replace").lower()
+            try:
+                content = manifest_path.read_text(encoding="utf-8", errors="replace").lower()
+            except OSError:
+                continue
             if re.search(r'"betakey"\s+"unstable"', content):
                 return "unstable"
         return "stable"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import secrets
 import shutil
@@ -19,6 +20,8 @@ class LaunchPlan:
     working_directory: Path
     command: list[str]
     notes: str
+    environment: dict[str, str] | None = None
+    redactions: tuple[str, ...] = ()
     blocked: bool = False
 
 
@@ -88,13 +91,7 @@ class ZomboidService:
 
     def build_launch_plan(self, profile: ServerProfile) -> LaunchPlan:
         install_directory = Path(profile.install_directory)
-        ini_path = Path(profile.cache_directory) / "Server" / f"{profile.server_name}.ini"
-        admin_username = ""
-        admin_password = ""
-        if ini_path.exists():
-            document = FlatIniDocument.parse(ini_path.read_text(encoding="utf-8"))
-            admin_username = (document.get("AdminUsername", "") or "").strip()
-            admin_password = (document.get("AdminPassword", "") or "").strip()
+        admin_username, admin_password = self._load_launch_secrets(profile)
         candidates = [
             install_directory / "start-server.sh",
             install_directory / "StartServer.sh",
@@ -109,13 +106,24 @@ class ZomboidService:
                 blocked=True,
             )
 
+        if not admin_password:
+            return LaunchPlan(
+                working_directory=install_directory,
+                command=[],
+                notes=(
+                    "Launch blocked. Configure a bootstrap admin password on the Network page before the first server start. "
+                    "Project Zomboid asks for this interactively otherwise, which is not compatible with a web-managed VPS service."
+                ),
+                blocked=True,
+            )
+
+        runtime_home, runtime_home_note = self._prepare_runtime_home(profile)
+        memory_note = self._apply_memory_profile(install_directory, profile.preferred_memory_gb)
         command = [
             "bash",
             script.name,
             "-servername",
             profile.server_name,
-            "-cachedir",
-            profile.cache_directory,
         ]
 
         if not profile.use_steam:
@@ -127,10 +135,15 @@ class ZomboidService:
         if admin_password:
             command.extend(["-adminpassword", admin_password])
 
-        if profile.bind_ip.strip():
-            command.extend(["-ip", profile.bind_ip.strip()])
+        bind_ip = profile.bind_ip.strip()
+        if bind_ip and bind_ip not in {"0.0.0.0", "::"}:
+            command.extend(["-ip", bind_ip])
 
         notes = f"Launching {profile.server_name} through {script.name}. Memory profile target is {profile.preferred_memory_gb} GB."
+        if runtime_home_note:
+            notes = f"{notes} {runtime_home_note}"
+        if memory_note:
+            notes = f"{notes} {memory_note}"
         if admin_username:
             notes = f"{notes} Bootstrap admin '{admin_username}' is configured for launch."
 
@@ -138,7 +151,96 @@ class ZomboidService:
             working_directory=install_directory,
             command=command,
             notes=notes,
+            environment={
+                "HOME": str(runtime_home),
+                "JAVA_TOOL_OPTIONS": f"-Duser.home={runtime_home}",
+            },
+            redactions=(admin_password,),
         )
+
+    def _load_launch_secrets(self, profile: ServerProfile) -> tuple[str, str]:
+        paths = [
+            Path(profile.cache_directory) / "Server" / f"{profile.server_name}_LauncherSecrets.ini",
+            Path(profile.cache_directory) / "Server" / f"{profile.server_name}.ini",
+        ]
+        for path in paths:
+            if not path.exists():
+                continue
+
+            document = FlatIniDocument.parse(path.read_text(encoding="utf-8"))
+            admin_username = (document.get("AdminUsername", "") or "").strip()
+            admin_password = (document.get("AdminPassword", "") or "").strip()
+            if admin_username or admin_password:
+                return admin_username, admin_password
+
+        return "", ""
+
+    def _prepare_runtime_home(self, profile: ServerProfile) -> tuple[Path, str]:
+        runtime_home = self.settings.servers_root / profile.id / "runtime-home"
+        cache_directory = Path(profile.cache_directory)
+        runtime_home.mkdir(parents=True, exist_ok=True)
+        cache_directory.mkdir(parents=True, exist_ok=True)
+
+        zomboid_link = runtime_home / "Zomboid"
+        if os.name == "nt":
+            return runtime_home, f"Runtime HOME is {runtime_home}; cache root is {cache_directory}."
+
+        try:
+            if zomboid_link.is_symlink():
+                if zomboid_link.resolve(strict=False) != cache_directory.resolve(strict=False):
+                    zomboid_link.unlink()
+                    zomboid_link.symlink_to(cache_directory, target_is_directory=True)
+            elif not zomboid_link.exists():
+                zomboid_link.symlink_to(cache_directory, target_is_directory=True)
+            elif zomboid_link.resolve(strict=False) != cache_directory.resolve(strict=False):
+                return runtime_home, f"Runtime HOME is {runtime_home}; existing Zomboid path prevented cache link to {cache_directory}."
+        except OSError as exc:
+            return runtime_home, f"Runtime HOME is {runtime_home}; could not link Zomboid cache: {exc}."
+
+        return runtime_home, f"Runtime HOME is {runtime_home}; Zomboid cache is linked to {cache_directory}."
+
+    def _apply_memory_profile(self, install_directory: Path, preferred_memory_gb: int) -> str:
+        memory_gb = max(1, int(preferred_memory_gb or 1))
+        changed_files: list[str] = []
+
+        for config_name in ("ProjectZomboid64.json", "ProjectZomboid32.json"):
+            config_path = install_directory / config_name
+            if not config_path.exists():
+                continue
+
+            try:
+                document = json.loads(config_path.read_text(encoding="utf-8-sig"))
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            vm_args = document.get("vmArgs")
+            if not isinstance(vm_args, list):
+                continue
+
+            desired_arg = f"-Xmx{memory_gb}g"
+            next_args: list[object] = []
+            replaced = False
+            for arg in vm_args:
+                if isinstance(arg, str) and arg.startswith("-Xmx"):
+                    if not replaced:
+                        next_args.append(desired_arg)
+                        replaced = True
+                    continue
+                next_args.append(arg)
+
+            if not replaced:
+                next_args.append(desired_arg)
+
+            if next_args == vm_args:
+                continue
+
+            document["vmArgs"] = next_args
+            config_path.write_text(json.dumps(document, indent=4) + "\n", encoding="utf-8")
+            changed_files.append(config_name)
+
+        if not changed_files:
+            return ""
+        return f"Applied -Xmx{memory_gb}g to {', '.join(changed_files)}."
 
     async def run_command(
         self,

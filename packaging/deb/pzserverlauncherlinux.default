@@ -1,0 +1,4 @@
+PZSL_BIND_HOST=127.0.0.1
+PZSL_BIND_PORT=48231
+PZSL_DATA_ROOT=/var/lib/pzserverlauncher
+PZSL_LOGS_ROOT=/var/log/pzserverlauncher

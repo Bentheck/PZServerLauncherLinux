@@ -53,12 +53,17 @@ def serialize_job(job: OperationJob, profile_lookup: dict[str, str]) -> dict[str
 
 
 def serialize_launch_plan(plan: LaunchPlan) -> dict[str, object]:
+    command = list(plan.command)
+    redacted_command = [
+        "[redacted]" if any(secret and part == secret for secret in plan.redactions) else part
+        for part in command
+    ]
     return {
         "blocked": plan.blocked,
         "notes": plan.notes,
         "working_directory": str(plan.working_directory),
-        "command": list(plan.command),
-        "command_label": " ".join(plan.command) if plan.command else "Blocked until files exist",
+        "command": redacted_command,
+        "command_label": " ".join(redacted_command) if redacted_command else "Blocked until files exist",
         "state_label": "Blocked" if plan.blocked else "Ready",
     }
 

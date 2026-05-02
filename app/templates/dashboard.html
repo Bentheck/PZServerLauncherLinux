@@ -7,7 +7,7 @@
     <div>
         <p class="eyebrow">Control Plane</p>
         <h1>Project Zomboid VPS Dashboard</h1>
-        <p class="lede">Use the dashboard for a quick read on host status, import discovery, and what needs attention next across the managed fleet.</p>
+        <p class="lede">Use the dashboard for a quick read on host status, explicit imports, and what needs attention next across the managed fleet.</p>
     </div>
     <div class="hero-pills">
         <span class="pill">{{ profile_count }} profiles</span>
@@ -27,11 +27,7 @@
         <p class="lede">{{ setup_mode_summary }}</p>
         <div class="action-row">
             <a class="button" href="{{ setup_primary_action_href }}">{{ setup_primary_action_label }}</a>
-            <form method="post" action="/profiles/imports/scan">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="next_url" value="/dashboard">
-                <button class="button button-subtle" type="submit">{{ setup_secondary_action_label }}</button>
-            </form>
+            <a class="button button-subtle" href="/profiles#import-intake">{{ setup_secondary_action_label }}</a>
             <a class="button button-subtle" href="/profiles">Open Profiles</a>
             <a class="button button-subtle" href="/consoles">Open Consoles</a>
         </div>
@@ -112,11 +108,7 @@
                 <p class="eyebrow">Import Intake</p>
                 <h2>{{ import_summary }}</h2>
             </div>
-            <form method="post" action="/profiles/imports/scan">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="next_url" value="/dashboard">
-                <button class="button button-subtle" type="submit">Scan Again</button>
-            </form>
+            <a class="button button-subtle" href="/profiles#import-intake">Point To Server</a>
         </div>
 
         {% if import_candidates %}
@@ -173,7 +165,7 @@
         </div>
         {% else %}
         <article class="callout-card">
-            <p>No local server candidates are loaded yet. Run a scan when you want the dashboard to surface existing Project Zomboid footprints on this machine.</p>
+            <p>No import candidates are loaded yet. Open Profiles and enter the existing server cache path.</p>
         </article>
         {% endif %}
     </article>

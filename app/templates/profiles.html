@@ -87,15 +87,23 @@
     <div class="section-heading">
         <div>
             <p class="eyebrow">Import Intake</p>
-            <h2>Local Server Discovery</h2>
+            <h2>Import Existing Server</h2>
         </div>
-        <form method="post" action="/profiles/imports/scan">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="next_url" value="/profiles">
-            <button class="button button-subtle" type="submit">Scan Imports</button>
-        </form>
     </div>
-    <p class="lede">Scan common Zomboid cache roots on this VPS and adopt an existing server footprint without copying or deleting its files.</p>
+    <p class="lede">Point the launcher at an existing server cache. The import reads only the paths you provide and does not copy or delete files.</p>
+    <form method="post" action="/profiles/imports/scan" class="grid-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next_url" value="/profiles#import-intake">
+        <label>
+            <span>Cache Path</span>
+            <input name="cache_directory" value="{{ import_cache_directory }}" placeholder="/home/pz/Zomboid" required>
+        </label>
+        <label>
+            <span>Install Path</span>
+            <input name="install_directory" value="{{ import_install_directory }}" placeholder="/home/pz/Steam/steamapps/common/Project Zomboid Dedicated Server">
+        </label>
+        <button class="button button-subtle" type="submit">Load Import</button>
+    </form>
     <p class="empty">{{ import_scan_summary }}</p>
 
     {% if import_candidates %}

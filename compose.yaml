@@ -1,0 +1,22 @@
+services:
+  pzserverlauncher:
+    build:
+      context: .
+    container_name: pzserverlauncherlinux
+    ports:
+      - "48232:48231"
+      - "16261:16261/udp"
+      - "16262:16262/udp"
+    environment:
+      PZSL_BIND_HOST: 0.0.0.0
+      PZSL_BIND_PORT: 48231
+      PZSL_DATA_ROOT: /var/lib/pzserverlauncher
+      PZSL_LOGS_ROOT: /var/log/pzserverlauncher
+      PZSL_ENVIRONMENT: docker
+    volumes:
+      - pzserverlauncher-data:/var/lib/pzserverlauncher
+      - pzserverlauncher-logs:/var/log/pzserverlauncher
+
+volumes:
+  pzserverlauncher-data:
+  pzserverlauncher-logs:

@@ -1,12 +1,8 @@
-# Caddy Reverse Proxy
+# Caddy
 
-These snippets are examples only. They are meant to be adapted into an operator-managed Caddy setup, not treated as a one-size-fits-all generated config.
+Example only. The app listens on the VPS at `127.0.0.1:48231`; Caddy exposes it publicly.
 
-The application itself should stay on:
-
-`127.0.0.1:48231`
-
-## Domain Example
+## Domain
 
 ```caddy
 your-domain.example {
@@ -14,9 +10,9 @@ your-domain.example {
 }
 ```
 
-Caddy can automatically manage Let's Encrypt when the domain points to the VPS.
+Caddy can manage Let's Encrypt when DNS points to the VPS.
 
-## IP-Only Example
+## IP Only
 
 ```caddy
 http://SERVER_IP {
@@ -24,6 +20,4 @@ http://SERVER_IP {
 }
 ```
 
-That is the simplest domainless option.
-
-For `https://SERVER_IP`, use a manual certificate block and expect more setup friction than the domain case.
+For `https://SERVER_IP`, configure your own certificate.

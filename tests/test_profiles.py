@@ -256,16 +256,86 @@ def test_consoles_slots_can_be_selected_assigned_and_cleared(client) -> None:
 def test_profiles_page_surfaces_local_import_candidates(client) -> None:
     bootstrap_owner(client)
     cache_root, install_root = create_import_candidate(client)
-    configure_import_service(client, cache_root, install_root)
 
     page = client.get("/profiles")
     assert page.status_code == 200
-    assert "Local Server Discovery" in page.text
+    assert "Import Existing Server" in page.text
+    assert "Load Import" in page.text
+    csrf = extract_csrf(page.text)
+
+    response = client.post(
+        "/profiles/imports/scan",
+        data={
+            "csrf_token": csrf,
+            "next_url": "/profiles",
+            "cache_directory": str(cache_root),
+            "install_directory": str(install_root),
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    page = response
     assert "Legacy Coast" in page.text
-    assert "Scan Imports" in page.text
     assert "2 workshop" in page.text
     assert str(cache_root) in page.text
     assert str(install_root) in page.text
+
+
+def test_profile_files_get_valid_bootstrap_defaults(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    profile = get_profile(client, profile_id)
+    paths = client.app.state.config_service.raw_file_paths(profile)
+    paths["ini"].parent.mkdir(parents=True, exist_ok=True)
+
+    paths["ini"].write_text("Map=\n", encoding="utf-8")
+    paths["sandbox"].write_text("", encoding="utf-8")
+    paths["spawnregions"].write_text("", encoding="utf-8")
+    paths["spawnpoints"].write_text("", encoding="utf-8")
+
+    client.app.state.config_service.ensure_profile_files(profile)
+
+    assert "Map=Muldraugh, KY" in paths["ini"].read_text(encoding="utf-8")
+    assert 'SandboxVars = require "Sandbox/Apocalypse"' in paths["sandbox"].read_text(encoding="utf-8")
+    assert "function SpawnRegions()" in paths["spawnregions"].read_text(encoding="utf-8")
+    assert "Muldraugh, KY" in paths["spawnregions"].read_text(encoding="utf-8")
+    assert "function SpawnPoints()" in paths["spawnpoints"].read_text(encoding="utf-8")
+
+
+def test_launch_plan_requires_bootstrap_admin_password(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    profile = get_profile(client, profile_id)
+    install_path = Path(profile.install_directory)
+    install_path.mkdir(parents=True, exist_ok=True)
+    (install_path / "start-server.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    client.app.state.config_service.ensure_profile_files(profile)
+
+    plan = client.app.state.zomboid_service.build_launch_plan(profile)
+
+    assert plan.blocked is True
+    assert plan.command == []
+    assert "bootstrap admin password" in plan.notes
+
+
+def test_import_discovery_skips_unreadable_install_probe(client, monkeypatch) -> None:
+    inaccessible = Path("/home/ubuntu/Steam/steamapps/common/Project Zomboid Dedicated Server")
+    original_exists = Path.exists
+
+    def guarded_exists(path: Path) -> bool:
+        if str(path).startswith(str(inaccessible)):
+            raise PermissionError("permission denied")
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", guarded_exists)
+    service = LocalServerImportService(
+        client.app.state.settings,
+        client.app.state.config_service,
+        cache_roots=[],
+        install_directories=[inaccessible],
+    )
+
+    assert service.discover([]) == []
 
 
 def test_profile_import_adopts_existing_cache_and_install(client) -> None:
@@ -934,10 +1004,12 @@ def test_network_settings_and_write_only_passwords_persist(client) -> None:
 
     ini_path = Path(client.app.state.settings.servers_root) / profile_id / "cache" / "Server" / "mainserver.ini"
     content = ini_path.read_text(encoding="utf-8")
+    launcher_secrets_path = client.app.state.config_service.launcher_secrets_path(get_profile(client, profile_id))
+    launcher_secrets = launcher_secrets_path.read_text(encoding="utf-8")
     assert "Password=join-secret" in content
     assert "RCONPassword=rcon-secret" in content
-    assert "AdminPassword=bootstrap-secret" in content
-    assert "AdminUsername=updated-admin" in content
+    assert "AdminPassword=bootstrap-secret" in launcher_secrets
+    assert "AdminUsername=updated-admin" in launcher_secrets
     assert "BindIP=10.0.0.5" in content
     assert "RCONPort=28015" in content
     assert "Tag=PVP" in content
@@ -947,6 +1019,7 @@ def test_network_settings_and_write_only_passwords_persist(client) -> None:
     assert "KickFastPlayers=false" in content
     assert "ClientCommandFilter=trusted-only" in content
     assert "SaveWorldEveryMinutes=10" in content
+    assert "UPnP=false" in content
     assert "ShowFirstAndLastName=false" in content
     assert "SafetyToggleTimer=30" in content
     assert "SafetyCooldownTimer=60" in content
@@ -955,6 +1028,16 @@ def test_network_settings_and_write_only_passwords_persist(client) -> None:
     assert "UseTCPForMapTraffic=false" in content
     assert "Voice3D=false" in content
     assert "MinutesPerPage=5" in content
+
+
+def test_runtime_compacts_known_project_zomboid_warning_noise(client) -> None:
+    manager = client.app.state.runtime_manager
+
+    assert manager._is_compactable_pz_noise("WARN : General > Could not find icon: Build_WallWood")
+    assert manager._is_compactable_pz_noise("WARN : Packet > No packet handler for type: \"Drink\"")
+    assert manager._is_compactable_pz_noise("LOG  : General > Missing texture: media/textures/weather/fogwhite.png")
+    assert manager._is_compactable_pz_noise("WARN : ActionSystem > Canceled loading wrong transition from walk to walk")
+    assert not manager._is_compactable_pz_noise("LOG  : Network > *** SERVER STARTED ****")
 
 
 def test_network_admin_bootstrap_flows_into_launch_plan(client) -> None:
@@ -987,13 +1070,50 @@ def test_network_admin_bootstrap_flows_into_launch_plan(client) -> None:
 
     refreshed = get_profile(client, profile_id)
     plan = client.app.state.zomboid_service.build_launch_plan(refreshed)
+    assert "-cachedir" not in plan.command
+    assert plan.environment is not None
+    assert plan.environment["HOME"].endswith("runtime-home")
+    assert plan.environment["JAVA_TOOL_OPTIONS"].startswith("-Duser.home=")
     assert "-adminusername" in plan.command
     assert "warden" in plan.command
     assert "-adminpassword" in plan.command
     assert "fresh-secret" in plan.command
+    assert plan.redactions == ("fresh-secret",)
     assert "-ip" in plan.command
     assert "10.0.0.9" in plan.command
     assert "Bootstrap admin 'warden' is configured for launch." in plan.notes
+
+
+def test_launch_plan_omits_wildcard_bind_and_applies_memory(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+
+    with client.app.state.session_factory() as db:
+        profile = db.get(ServerProfile, profile_id)
+        assert profile is not None
+        profile.bind_ip = "0.0.0.0"
+        profile.preferred_memory_gb = 3
+        db.commit()
+
+    profile = get_profile(client, profile_id)
+    install_path = Path(profile.install_directory)
+    install_path.mkdir(parents=True, exist_ok=True)
+    (install_path / "start-server.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (install_path / "ProjectZomboid64.json").write_text(
+        '{"vmArgs":["-Djava.awt.headless=true","-Xmx8g"]}',
+        encoding="utf-8",
+    )
+
+    secrets_path = Path(profile.cache_directory) / "Server" / f"{profile.server_name}_LauncherSecrets.ini"
+    secrets_path.parent.mkdir(parents=True, exist_ok=True)
+    secrets_path.write_text("AdminUsername=warden\nAdminPassword=fresh-secret\n", encoding="utf-8")
+
+    refreshed = get_profile(client, profile_id)
+    plan = client.app.state.zomboid_service.build_launch_plan(refreshed)
+
+    assert "-ip" not in plan.command
+    assert "Applied -Xmx3g to ProjectZomboid64.json." in plan.notes
+    assert '"-Xmx3g"' in (install_path / "ProjectZomboid64.json").read_text(encoding="utf-8")
 
 
 def test_host_page_exposes_roster_metrics_and_checklist(client) -> None:

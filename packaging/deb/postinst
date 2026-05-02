@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_USER="pzlauncher"
+APP_HOME="/opt/pzserverlauncher"
+DATA_ROOT="/var/lib/pzserverlauncher"
+LOGS_ROOT="/var/log/pzserverlauncher"
+WHEEL_DIR="/usr/share/pzserverlauncherlinux/wheels"
+
+if ! id "$APP_USER" >/dev/null 2>&1; then
+  useradd --system --home "$APP_HOME" --shell /usr/sbin/nologin "$APP_USER"
+fi
+
+mkdir -p "$APP_HOME" "$DATA_ROOT" "$LOGS_ROOT"
+chown -R "$APP_USER:$APP_USER" "$APP_HOME" "$DATA_ROOT" "$LOGS_ROOT"
+
+python3 -m venv "$APP_HOME/.venv"
+"$APP_HOME/.venv/bin/python" -m pip install --upgrade pip
+"$APP_HOME/.venv/bin/python" -m pip install "$WHEEL_DIR"/pzserverlauncherlinux-*.whl
+ln -sf "$APP_HOME/.venv/bin/pzserverlauncherlinux" /usr/local/bin/pzserverlauncherlinux
+
+systemctl daemon-reload >/dev/null 2>&1 || true
+
+cat <<'MSG'
+PZServerLauncherLinux installed.
+
+Start manually:
+  sudo systemctl start pzserverlauncherlinux
+
+Enable on boot:
+  sudo systemctl enable pzserverlauncherlinux
+
+First setup on a VPS:
+  ssh -L 48231:127.0.0.1:48231 user@server
+  open http://127.0.0.1:48231 on your own computer
+MSG

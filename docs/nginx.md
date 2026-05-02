@@ -1,14 +1,8 @@
-# Nginx Reverse Proxy
+# Nginx
 
-These snippets are examples only. They are meant to be adapted into an operator-managed Nginx setup, not copied as a guaranteed full server config.
+Example only. The app listens on the VPS at `127.0.0.1:48231`; Nginx exposes it publicly.
 
-The application itself should stay on:
-
-`127.0.0.1:48231`
-
-Nginx becomes the public surface.
-
-## Domain Example
+## Domain
 
 ```nginx
 server {
@@ -23,9 +17,9 @@ server {
 }
 ```
 
-Pair this with Let's Encrypt for the clean production setup.
+Use Let's Encrypt separately.
 
-## IP-Only Example
+## IP Only
 
 ```nginx
 server {
@@ -41,8 +35,4 @@ server {
 }
 ```
 
-This supports:
-
-- `http://SERVER_IP`
-
-If you want `https://SERVER_IP`, use a self-signed certificate or an IP-capable certificate from your provider.
+Use `http://SERVER_IP`. For `https://SERVER_IP`, configure your own certificate.

@@ -7,7 +7,7 @@ name = "pzserverlauncherlinux"
 version = "0.1.0"
 description = "Linux web launcher for Project Zomboid dedicated servers."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.115.0,<1.0.0",
   "httpx>=0.28.0,<1.0.0",
@@ -30,6 +30,11 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+artifacts = [
+  "app/assets/**",
+  "app/static/**",
+  "app/templates/**",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

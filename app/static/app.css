@@ -86,6 +86,41 @@ body {
     font-weight: 700;
 }
 
+.topbar-support {
+    margin-left: auto;
+    display: grid;
+    justify-items: end;
+    gap: 0.35rem;
+}
+
+.support-caption {
+    color: #ffd2a0;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.support-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.72rem 0.95rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 179, 107, 0.82);
+    background:
+        linear-gradient(135deg, rgba(255, 179, 107, 0.46), rgba(255, 126, 79, 0.22));
+    color: #fff7ec;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 14px 38px rgba(255, 179, 107, 0.16);
+    transition: 160ms ease;
+}
+
+.support-link:hover {
+    border-color: rgba(255, 179, 107, 0.72);
+    color: #fff4e8;
+    transform: translateY(-1px);
+}
+
 .eyebrow {
     margin: 0 0 0.35rem;
     color: var(--accent);
@@ -831,6 +866,11 @@ td {
     .topbar-actions,
     .hero-pills {
         justify-content: flex-start;
+    }
+
+    .topbar-support {
+        margin-left: 0;
+        justify-items: start;
     }
 
     .inline-form input {

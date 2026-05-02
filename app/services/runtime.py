@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -133,13 +134,14 @@ class RuntimeManager:
         process = await asyncio.create_subprocess_exec(
             *plan.command,
             cwd=str(plan.working_directory),
+            env={**os.environ, **(plan.environment or {})},
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
-        stdout_reader = asyncio.create_task(self._read_output(profile.id, process.stdout))
-        stderr_reader = asyncio.create_task(self._read_output(profile.id, process.stderr))
+        stdout_reader = asyncio.create_task(self._read_output(profile.id, process.stdout, plan.redactions))
+        stderr_reader = asyncio.create_task(self._read_output(profile.id, process.stderr, plan.redactions))
         watcher = asyncio.create_task(self._watch_process(profile.id, process, profile.auto_restart_on_crash))
 
         self._processes[profile.id] = ProcessRecord(
@@ -212,12 +214,37 @@ class RuntimeManager:
         history.append(trimmed)
         self.append_log(profile_id, f"> {trimmed}")
 
-    async def _read_output(self, profile_id: str, stream) -> None:
+    async def _read_output(self, profile_id: str, stream, redactions: tuple[str, ...] = ()) -> None:
+        compacted_noise_count = 0
         while True:
             line = await stream.readline()
             if not line:
                 break
-            self.append_log(profile_id, line.decode("utf-8", errors="replace").rstrip())
+            decoded = line.decode("utf-8", errors="replace").rstrip()
+            for value in redactions:
+                if value:
+                    decoded = decoded.replace(value, "[redacted]")
+            if self._is_compactable_pz_noise(decoded):
+                compacted_noise_count += 1
+                if compacted_noise_count == 1:
+                    self.append_log(profile_id, "Compacting repeated vanilla Project Zomboid asset warning noise in launcher live logs.")
+                continue
+            self.append_log(profile_id, decoded)
+
+        if compacted_noise_count:
+            self.append_log(profile_id, f"Compacted {compacted_noise_count} repeated PZ asset warning line(s). Full raw output remains in the server console/debug logs.")
+
+    @staticmethod
+    def _is_compactable_pz_noise(line: str) -> bool:
+        return any(
+            marker in line
+            for marker in (
+                "Could not find icon:",
+                "Missing texture: media/textures/weather/fogwhite.png",
+                "No packet handler for type:",
+                "Canceled loading wrong transition",
+            )
+        )
 
     async def _watch_process(self, profile_id: str, process: asyncio.subprocess.Process, auto_restart: bool) -> None:
         exit_code = await process.wait()

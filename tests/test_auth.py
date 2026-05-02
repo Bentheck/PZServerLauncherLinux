@@ -26,6 +26,56 @@ def test_owner_bootstrap_then_login(client) -> None:
     assert "Project Zomboid VPS Dashboard" in dashboard.text
 
 
+def test_owner_bootstrap_short_password_shows_form_error(client) -> None:
+    setup_page = client.get("/setup")
+    csrf = extract_csrf(setup_page.text)
+
+    response = client.post(
+        "/setup",
+        data={
+            "csrf_token": csrf,
+            "username": "owner",
+            "display_name": "Owner",
+            "password": "short",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Bootstrap the Owner Account" in response.text
+    assert "Passwords must be at least 12 characters long." in response.text
+
+
+def test_login_shell_hides_support_link(client) -> None:
+    response = client.get("/setup")
+
+    assert response.status_code == 200
+    assert "https://buymeacoffee.com/bentheck" not in response.text
+    assert "Buy me a coffee" not in response.text
+
+
+def test_authenticated_shell_exposes_support_link_and_catchphrase(client) -> None:
+    setup_page = client.get("/setup")
+    csrf = extract_csrf(setup_page.text)
+    client.post(
+        "/setup",
+        data={
+            "csrf_token": csrf,
+            "username": "owner",
+            "display_name": "Owner",
+            "password": "super-secure-password",
+        },
+    )
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "Like what I" in response.text
+    assert "doing?" in response.text
+    assert "https://buymeacoffee.com/bentheck" in response.text
+    assert "Buy me a coffee" in response.text
+
+
 def test_login_flow_after_bootstrap(client) -> None:
     setup_page = client.get("/setup")
     csrf = extract_csrf(setup_page.text)
