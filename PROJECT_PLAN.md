@@ -17,7 +17,6 @@ Feature reference:
 - SQLAlchemy
 - Server-rendered web UI
 - Local app bind: `127.0.0.1:48231`
-- Docker test bind: host `127.0.0.1:48232` -> container `48231`
 
 Remote access is handled by SSH forwarding or a reverse proxy.
 
@@ -71,4 +70,3 @@ It does not expose the app publicly, configure certificates, or edit proxy confi
 - Unit and route tests for config editing, runtime, backups, auth, import, workshop, and UI flows
 - Wheel contains templates, static files, and preset assets
 - Ubuntu smoke test remains required before release
-- Docker Desktop smoke test for local UI validation

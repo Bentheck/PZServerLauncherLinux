@@ -39,14 +39,6 @@ Ubuntu `.deb` packages are built on Linux:
 ./scripts/build-deb.sh
 ```
 
-Docker Desktop test build:
-
-```bash
-docker compose up --build -d
-```
-
-Open `http://127.0.0.1:48232`.
-
 Run:
 
 ```bash
@@ -165,7 +157,7 @@ ssh -L 48231:127.0.0.1:48231 user@server
 
 Then open `http://127.0.0.1:48231` on your own computer.
 
-For background hosting, create your own `systemd`, Docker, Supervisor, `screen`, or `tmux` setup.
+For background hosting, create your own `systemd`, Supervisor, `screen`, or `tmux` setup.
 
 ## Deployment
 
@@ -178,7 +170,6 @@ Recommended shape:
 References:
 
 - [Ubuntu setup](docs/ubuntu-vps-setup.md)
-- [Docker Desktop](docs/docker.md)
 - [Nginx](docs/nginx.md)
 - [Caddy](docs/caddy.md)
 - [Example systemd unit](systemd/pzserverlauncher.service)
