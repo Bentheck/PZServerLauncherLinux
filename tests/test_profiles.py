@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from app.main import start_profiles_marked_for_host
 from app.models import AuditEntry, HostSettings, ModsMapsDraft, ModsMapsDraftItem, OperationJob, ServerProfile, SettingsDraft, User, WorkshopPreset
 from app.services.imports import LocalServerImportService
+from app.services.release_check import LauncherUpdateStatus
 from app.services.runtime import InstallJobOptions, RuntimeSnapshot
 from app.services.workshop_browser import (
     SteamWorkshopRemoteItem,
@@ -56,6 +58,17 @@ def create_profile(client) -> str:
     assert response.status_code == 303
     assert response.headers["location"] == "/profiles/main-server/overview"
     return "main-server"
+
+
+class FakeReleaseCheckService:
+    def __init__(self, *statuses: LauncherUpdateStatus) -> None:
+        self._statuses = list(statuses)
+        self.calls: list[bool] = []
+
+    def get_status(self, force_refresh: bool = False) -> LauncherUpdateStatus:
+        self.calls.append(force_refresh)
+        index = min(len(self.calls) - 1, len(self._statuses) - 1)
+        return self._statuses[index]
 
 
 def get_sandbox_draft(client, profile_id: str) -> SettingsDraft | None:
@@ -1436,6 +1449,94 @@ def test_host_page_can_stop_all_managed_servers_with_confirmation(client) -> Non
     assert response.status_code == 200
     assert stopped_profiles == [profile_id]
     assert "Stopped 1 managed profile(s)." in response.text
+
+
+def test_host_page_displays_launcher_update_status(client) -> None:
+    bootstrap_owner(client)
+    client.app.state.release_check_service = FakeReleaseCheckService(
+        LauncherUpdateStatus(
+            state="update_available",
+            current_version="1.0.0",
+            latest_version="1.1.0",
+            release_title="PZServerLauncherLinux 1.1.0",
+            release_page_url="https://github.com/Bentheck/PZServerLauncherLinux/releases/tag/v1.1.0",
+            published_at_utc=datetime(2026, 5, 5, 12, 0, 0, tzinfo=timezone.utc),
+            checked_at_utc=datetime(2026, 5, 5, 12, 5, 0, tzinfo=timezone.utc),
+            status_message="Version 1.1.0 is available on GitHub. You're on 1.0.0.",
+        )
+    )
+
+    page = client.get("/host")
+
+    assert page.status_code == 200
+    assert "Launcher Updates" in page.text
+    assert "Update available" in page.text
+    assert "Version 1.1.0" in page.text
+    assert "Open Release Page" in page.text
+
+
+def test_host_page_check_updates_forces_refresh(client) -> None:
+    bootstrap_owner(client)
+    service = FakeReleaseCheckService(
+        LauncherUpdateStatus(
+            state="up_to_date",
+            current_version="1.0.0",
+            latest_version="1.0.0",
+            release_title="PZServerLauncherLinux 1.0.0",
+            release_page_url="https://github.com/Bentheck/PZServerLauncherLinux/releases/tag/v1.0.0",
+            published_at_utc=datetime(2026, 5, 5, 12, 0, 0, tzinfo=timezone.utc),
+            checked_at_utc=datetime(2026, 5, 5, 12, 5, 0, tzinfo=timezone.utc),
+            status_message="You're on 1.0.0. The latest stable release is 1.0.0.",
+        ),
+        LauncherUpdateStatus(
+            state="update_available",
+            current_version="1.0.0",
+            latest_version="1.1.0",
+            release_title="PZServerLauncherLinux 1.1.0",
+            release_page_url="https://github.com/Bentheck/PZServerLauncherLinux/releases/tag/v1.1.0",
+            published_at_utc=datetime(2026, 5, 5, 12, 10, 0, tzinfo=timezone.utc),
+            checked_at_utc=datetime(2026, 5, 5, 12, 15, 0, tzinfo=timezone.utc),
+            status_message="Version 1.1.0 is available on GitHub. You're on 1.0.0.",
+        ),
+    )
+    client.app.state.release_check_service = service
+
+    page = client.get("/host")
+    csrf = extract_csrf(page.text)
+    response = client.post(
+        "/host",
+        data={
+            "csrf_token": csrf,
+            "action": "check-updates",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [False, True, False]
+    assert "Version 1.1.0 is available on GitHub. You&#39;re on 1.0.0." in response.text
+
+
+def test_host_page_renders_unavailable_update_state(client) -> None:
+    bootstrap_owner(client)
+    client.app.state.release_check_service = FakeReleaseCheckService(
+        LauncherUpdateStatus(
+            state="unavailable",
+            current_version="1.0.0",
+            latest_version=None,
+            release_title=None,
+            release_page_url="https://github.com/Bentheck/PZServerLauncherLinux/releases",
+            published_at_utc=None,
+            checked_at_utc=datetime(2026, 5, 5, 12, 20, 0, tzinfo=timezone.utc),
+            status_message="Unable to check GitHub releases right now.",
+        )
+    )
+
+    page = client.get("/host")
+
+    assert page.status_code == 200
+    assert "Check unavailable" in page.text
+    assert "Version unavailable" in page.text
 
 
 def test_remote_page_exposes_recommended_url_and_checklist(client) -> None:

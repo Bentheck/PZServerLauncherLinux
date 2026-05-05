@@ -945,6 +945,7 @@ def build_dashboard_summary(request: Request, db: Session, user: User) -> dict[s
 def build_host_summary(request: Request, db: Session) -> dict[str, object]:
     host_settings = get_host_settings(db, request)
     runtime_manager = request.app.state.runtime_manager
+    launcher_update = request.app.state.release_check_service.get_status()
     profiles = db.scalars(select(ServerProfile).order_by(ServerProfile.display_name)).all()
     managed_rows = [build_profile_posture_row(request, profile) for profile in profiles]
     running_profiles = sum(1 for row in managed_rows if row["runtime_state"] == "running")
@@ -1056,6 +1057,7 @@ def build_host_summary(request: Request, db: Session) -> dict[str, object]:
         "host_security_summary": (
             "FastAPI should stay loopback-bound while the reverse proxy handles public exposure, TLS, and origin filtering."
         ),
+        "launcher_update": launcher_update,
         "host_checklist": checklist,
         "host_next_step_summary": checklist[0]["message"],
         "runtime_statuses": runtime_manager.list_statuses(),
@@ -2955,6 +2957,17 @@ async def host_submit(
             message="Cleared the staged runtime stop request.",
         )
         flash(request, "success", "Cleared the staged runtime stop request.")
+        return redirect("/host")
+
+    if action == "check-updates":
+        launcher_update = request.app.state.release_check_service.get_status(force_refresh=True)
+        flash_kind = "success"
+        if launcher_update.state == "update_available":
+            flash_kind = "warning"
+        elif launcher_update.state == "unavailable":
+            flash_kind = "error"
+
+        flash(request, flash_kind, launcher_update.status_message)
         return redirect("/host")
 
     if access_mode not in {"domain", "ip", "private"}:

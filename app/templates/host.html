@@ -4,10 +4,22 @@
 
 {% block content %}
 <section class="panel hero">
-    <div>
-        <p class="eyebrow">Host Control</p>
-        <h1>Host Settings</h1>
-        <p class="lede">{{ host_next_step_summary }}</p>
+    <div class="card-stack">
+        <div>
+            <p class="eyebrow">Host Control</p>
+            <h1>Host Settings</h1>
+            <p class="lede">{{ host_next_step_summary }}</p>
+        </div>
+        <article class="callout-card">
+            <p class="eyebrow">Launcher Updates</p>
+            <strong>{{ launcher_update.state_label }}</strong>
+            <p class="empty">Version {{ launcher_update.latest_version or "unavailable" }}</p>
+            <div class="action-row">
+                {% if launcher_update.release_page_url %}
+                <a class="button button-subtle" href="{{ launcher_update.release_page_url }}" target="_blank" rel="noopener noreferrer">Open Release Page</a>
+                {% endif %}
+            </div>
+        </article>
     </div>
     <div class="hero-pills">
         <span class="pill">{{ host_startup_label }}</span>

@@ -16,6 +16,7 @@ from app.routes import api, web
 from app.services.backup_scheduler import BackupScheduler
 from app.services.config_files import ProjectZomboidConfigService
 from app.services.imports import LocalServerImportService
+from app.services.release_check import ReleaseCheckService
 from app.services.runtime import RuntimeManager
 from app.services.sandbox_files import ProjectZomboidSandboxService
 from app.services.workshop_browser import WorkshopBrowserService
@@ -49,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     import_service = LocalServerImportService(app_settings, config_service)
     workshop_browser_service = WorkshopBrowserService(config_service)
     sandbox_service = ProjectZomboidSandboxService(app_settings)
+    release_check_service = ReleaseCheckService()
     runtime_manager = RuntimeManager(session_factory, zomboid_service)
     backup_scheduler = BackupScheduler(session_factory, zomboid_service, runtime_manager)
 
@@ -81,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.import_service = import_service
     app.state.workshop_browser_service = workshop_browser_service
     app.state.sandbox_service = sandbox_service
+    app.state.release_check_service = release_check_service
     app.state.host_shutdown_request = None
     app.state.now = utcnow
 
