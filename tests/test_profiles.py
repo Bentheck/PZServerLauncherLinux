@@ -8,14 +8,16 @@ from types import SimpleNamespace
 from sqlalchemy import select
 
 from app.main import start_profiles_marked_for_host
-from app.models import AuditEntry, HostSettings, OperationJob, ServerProfile, SettingsDraft, User, WorkshopPreset
+from app.models import AuditEntry, HostSettings, ModsMapsDraft, ModsMapsDraftItem, OperationJob, ServerProfile, SettingsDraft, User, WorkshopPreset
 from app.services.imports import LocalServerImportService
 from app.services.runtime import InstallJobOptions, RuntimeSnapshot
 from app.services.workshop_browser import (
+    SteamWorkshopRemoteItem,
     WorkshopBrowserItem,
     WorkshopBrowserPreview,
     WorkshopBrowserPreviewChild,
     WorkshopBrowserSearchResult,
+    WorkshopBrowserService,
 )
 from tests.conftest import extract_csrf
 
@@ -98,6 +100,227 @@ def create_workshop_item(
     )
     (workshop_root / "workshop.txt").write_text(f"title={title}\n", encoding="utf-8")
     return workshop_root
+
+
+def test_workshop_browser_search_kind_limits_remote_queries() -> None:
+    class EmptyWorkshopCatalog:
+        def list_installed_workshop_catalog(self, profile):
+            return []
+
+    service = WorkshopBrowserService(EmptyWorkshopCatalog())
+    calls: list[str] = []
+
+    def search_remote_items(api_key: str, query: str, take: int, required_tags=None):
+        calls.append("mod")
+        return [
+            SteamWorkshopRemoteItem(
+                workshop_id="111",
+                title="Mod Result",
+                description="Mod ID: ModResult",
+                preview_url=None,
+                tags=[],
+                kind="item",
+                child_workshop_ids=[],
+            )
+        ]
+
+    def search_remote_collections(api_key: str, query: str, take: int, required_tags=None):
+        calls.append("collection")
+        return [
+            SteamWorkshopRemoteItem(
+                workshop_id="222",
+                title="Collection Result",
+                description="",
+                preview_url=None,
+                tags=[],
+                kind="collection",
+                child_workshop_ids=["111"],
+            )
+        ]
+
+    service._search_remote_items = search_remote_items
+    service._search_remote_collections = search_remote_collections
+
+    result = service.search(
+        SimpleNamespace(),
+        current_workshop_ids=[],
+        current_mod_ids=[],
+        current_map_ids=[],
+        query="result",
+        api_key="steam-key",
+        search_kind="collection",
+    )
+
+    assert calls == ["collection"]
+    assert result.search_kind == "collection"
+    assert [item.kind for item in result.items] == ["collection"]
+    assert "Steam Workshop collection search is enabled" in result.diagnostics[0]
+
+    calls.clear()
+    result = service.search(
+        SimpleNamespace(),
+        current_workshop_ids=[],
+        current_mod_ids=[],
+        current_map_ids=[],
+        query="result",
+        api_key="steam-key",
+        search_kind="mod",
+    )
+
+    assert calls == ["mod"]
+    assert result.search_kind == "mod"
+    assert [item.kind for item in result.items] == ["item"]
+    assert "Steam Workshop mod search is enabled" in result.diagnostics[0]
+
+    calls.clear()
+    result = service.search(
+        SimpleNamespace(),
+        current_workshop_ids=[],
+        current_mod_ids=[],
+        current_map_ids=[],
+        query="result",
+        api_key="steam-key",
+        search_kind="map",
+    )
+
+    assert calls == ["mod"]
+    assert result.search_kind == "map"
+
+
+def test_workshop_browser_search_passes_multiple_required_tags_to_steam() -> None:
+    service = WorkshopBrowserService(SimpleNamespace())
+    payload: dict[str, str] = {}
+
+    service._apply_required_tags(payload, ["Build 42", "Map", "Build 42"])
+
+    assert payload == {
+        "requiredtags[0]": "Build 42",
+        "requiredtags[1]": "Map",
+    }
+
+
+def test_workshop_browser_preview_recursively_resolves_dependencies() -> None:
+    class EmptyWorkshopCatalog:
+        def list_installed_workshop_catalog(self, profile):
+            return []
+
+    service = WorkshopBrowserService(EmptyWorkshopCatalog())
+    remote_items = {
+        "root": SteamWorkshopRemoteItem(
+            workshop_id="root",
+            title="Root Mod",
+            description="Mod ID: RootMod",
+            preview_url=None,
+            tags=[],
+            kind="item",
+            child_workshop_ids=["dep-one"],
+        ),
+        "dep-one": SteamWorkshopRemoteItem(
+            workshop_id="dep-one",
+            title="Dependency One",
+            description="Mod ID: DependencyOne",
+            preview_url=None,
+            tags=[],
+            kind="item",
+            child_workshop_ids=["dep-two"],
+        ),
+        "dep-two": SteamWorkshopRemoteItem(
+            workshop_id="dep-two",
+            title="Dependency Two",
+            description="Mod ID: DependencyTwo",
+            preview_url=None,
+            tags=[],
+            kind="item",
+            child_workshop_ids=[],
+        ),
+    }
+
+    service._get_collection = lambda workshop_id: None
+    service._get_detail = lambda workshop_id: remote_items.get(workshop_id)
+    service._get_details = lambda workshop_ids: [
+        remote_items[workshop_id]
+        for workshop_id in workshop_ids
+        if workshop_id in remote_items
+    ]
+
+    preview = service.get_preview(
+        SimpleNamespace(),
+        current_workshop_ids=["dep-one"],
+        current_mod_ids=[],
+        current_map_ids=[],
+        workshop_id="root",
+        api_key="steam-key",
+    )
+
+    assert preview is not None
+    assert [dependency.workshop_id for dependency in preview.dependency_children] == ["dep-one", "dep-two"]
+    assert [dependency.is_queued for dependency in preview.dependency_children] == [True, False]
+    assert preview.workshop_ids_to_add == ["root"]
+    assert preview.dependency_workshop_ids_to_add == ["dep-two"]
+    assert preview.dependency_mod_ids_to_add == ["DependencyOne", "DependencyTwo", "RootMod"]
+
+
+def test_workshop_browser_preview_uses_steam_required_items_fallback() -> None:
+    class EmptyWorkshopCatalog:
+        def list_installed_workshop_catalog(self, profile):
+            return []
+
+    service = WorkshopBrowserService(EmptyWorkshopCatalog())
+    remote_items = {
+        "root": SteamWorkshopRemoteItem(
+            workshop_id="root",
+            title="Root Mod",
+            description="Mod ID: RootMod",
+            preview_url=None,
+            tags=[],
+            kind="item",
+            child_workshop_ids=[],
+        ),
+        "dep-one": SteamWorkshopRemoteItem(
+            workshop_id="dep-one",
+            title="Dependency One",
+            description="Mod ID: DependencyOne",
+            preview_url=None,
+            tags=[],
+            kind="item",
+            child_workshop_ids=[],
+        ),
+        "dep-two": SteamWorkshopRemoteItem(
+            workshop_id="dep-two",
+            title="Dependency Two",
+            description="Mod ID: DependencyTwo",
+            preview_url=None,
+            tags=[],
+            kind="item",
+            child_workshop_ids=[],
+        ),
+    }
+    required_items = {
+        "root": ["dep-one"],
+        "dep-one": ["dep-two"],
+    }
+
+    service._get_collection = lambda workshop_id: None
+    service._get_detail = lambda workshop_id: remote_items.get(workshop_id)
+    service._get_details = lambda workshop_ids: [
+        remote_items[workshop_id]
+        for workshop_id in workshop_ids
+        if workshop_id in remote_items
+    ]
+    service._get_required_workshop_ids = lambda workshop_id: required_items.get(workshop_id, [])
+
+    preview = service.get_preview(
+        SimpleNamespace(),
+        current_workshop_ids=[],
+        current_mod_ids=[],
+        current_map_ids=[],
+        workshop_id="root",
+        api_key="steam-key",
+    )
+
+    assert preview is not None
+    assert [dependency.workshop_id for dependency in preview.dependency_children] == ["dep-one", "dep-two"]
+    assert preview.dependency_workshop_ids_to_add == ["dep-one", "dep-two"]
 
 
 def create_import_candidate(
@@ -1006,7 +1229,8 @@ def test_network_settings_and_write_only_passwords_persist(client) -> None:
     content = ini_path.read_text(encoding="utf-8")
     launcher_secrets_path = client.app.state.config_service.launcher_secrets_path(get_profile(client, profile_id))
     launcher_secrets = launcher_secrets_path.read_text(encoding="utf-8")
-    assert "Password=join-secret" in content
+    assert "Password=" in content
+    assert "Password=join-secret" not in content
     assert "RCONPassword=rcon-secret" in content
     assert "AdminPassword=bootstrap-secret" in launcher_secrets
     assert "AdminUsername=updated-admin" in launcher_secrets
@@ -1364,12 +1588,16 @@ def test_mods_maps_page_exposes_workshop_browser_preview_and_diagnostics(client)
     page = client.get(f"/profiles/{profile_id}/mods-maps?q=Fancy&preview=123456789")
     assert page.status_code == 200
     assert "Workshop Browser" in page.text
-    assert "Ordered Preset Manager" in page.text
+    assert "Mods in the Editor" in page.text
+    assert "Maps in the Editor" in page.text
+    assert '<option value="map"' in page.text
     assert "Diagnostics" in page.text
+    assert "steamcommunity.com/dev/apikey" in page.text
+    assert "enter your server name or IP" in page.text
     assert "Fancy Pack" in page.text
     assert "FancyMod" in page.text
     assert "MapOne" in page.text
-    assert "Queue Whole Pack" in page.text
+    assert "Queue Whole Pack" not in page.text
 
 
 def test_mods_maps_save_live_auto_resolves_workshop_ids_from_local_content(client) -> None:
@@ -1404,7 +1632,207 @@ def test_mods_maps_save_live_auto_resolves_workshop_ids_from_local_content(clien
     assert "Map=MapOne" in content
 
 
-def test_mods_maps_named_preset_can_be_saved_and_applied(client) -> None:
+def test_mods_maps_draft_persists_queued_editor_values_until_live_save(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+
+    response = client.post(
+        f"/api/profiles/{profile_id}/mods-maps/draft",
+        json={
+            "workshop_ids": ["111111", "111111", "222222"],
+            "mod_ids": ["ModA", "ModB"],
+            "map_ids": ["MapOne"],
+            "mod_items": [
+                {
+                    "mod_id": "ModB",
+                    "mod_name": "Mod B Title",
+                    "workshop_id": "222222",
+                },
+                {
+                    "mod_id": "ModA",
+                    "mod_name": "Mod A Title",
+                    "workshop_id": "111111",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["workshop_ids"] == ["111111", "222222"]
+
+    with client.app.state.session_factory() as db:
+        draft = db.scalar(select(ModsMapsDraft).where(ModsMapsDraft.profile_id == profile_id))
+        assert draft is not None
+        assert draft.workshop_ids == "111111\n222222"
+        draft_items = db.scalars(
+            select(ModsMapsDraftItem)
+            .where(ModsMapsDraftItem.profile_id == profile_id)
+            .order_by(ModsMapsDraftItem.sort_order.asc())
+        ).all()
+        assert len(draft_items) == 2
+        assert draft_items[0].mod_name == "Mod A Title"
+        assert draft_items[0].mod_id == "ModA"
+        assert draft_items[0].workshop_id == "111111"
+        assert draft_items[0].is_active is True
+        assert draft_items[0].sort_order == 0
+        assert draft_items[1].mod_name == "Mod B Title"
+        assert draft_items[1].mod_id == "ModB"
+        assert draft_items[1].workshop_id == "222222"
+        assert draft_items[1].is_active is True
+        assert draft_items[1].sort_order == 1
+
+    page = client.get(f"/profiles/{profile_id}/mods-maps")
+    assert page.status_code == 200
+    assert "The Mods & Maps editor has unsaved draft changes" in page.text
+    assert "<textarea name=\"workshop_ids_text\">111111\n222222</textarea>" in page.text
+    assert "<textarea name=\"mod_ids_text\">ModA\nModB</textarea>" in page.text
+    assert 'data-workshop-id="111111"' in page.text
+    assert "Mod A Title" in page.text
+    assert "Mod Name" in page.text
+    assert "Mod ID" in page.text
+    assert "Workshop ID" in page.text
+
+    csrf = extract_csrf(page.text)
+    response = client.post(
+        f"/profiles/{profile_id}/mods-maps",
+        data={
+            "csrf_token": csrf,
+            "action": "save_live",
+            "browser_query": "",
+            "browser_search_kind": "all",
+            "preview_workshop_id": "",
+            "workshop_ids_text": "111111\n222222",
+            "mod_ids_text": "ModA\nModB",
+            "map_ids_text": "MapOne",
+            "preset_name": "",
+            "preset_id": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.app.state.session_factory() as db:
+        assert db.scalar(select(ModsMapsDraft).where(ModsMapsDraft.profile_id == profile_id)) is None
+        assert db.scalars(select(ModsMapsDraftItem).where(ModsMapsDraftItem.profile_id == profile_id)).all() == []
+
+
+def test_mods_maps_draft_keeps_inactive_mod_items_visible(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+
+    response = client.post(
+        f"/api/profiles/{profile_id}/mods-maps/draft",
+        json={
+            "workshop_ids": ["111111", "222222"],
+            "mod_ids": ["ModA"],
+            "map_ids": [],
+            "mod_items": [
+                {
+                    "mod_id": "ModA",
+                    "mod_name": "Active Mod",
+                    "workshop_id": "111111",
+                },
+                {
+                    "mod_id": "ModB",
+                    "mod_name": "Inactive Mod",
+                    "workshop_id": "222222",
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    page = client.get(f"/profiles/{profile_id}/mods-maps")
+    assert page.status_code == 200
+    assert "Active Mod" in page.text
+    assert "Inactive Mod" in page.text
+    assert '<textarea name="mod_ids_text">ModA</textarea>' in page.text
+    assert 'data-mod-id="ModB"' in page.text
+    assert 'data-active="no"' in page.text
+
+
+def test_mods_maps_draft_keeps_fully_inactive_mod_items_visible(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+
+    response = client.post(
+        f"/api/profiles/{profile_id}/mods-maps/draft",
+        json={
+            "workshop_ids": ["222222"],
+            "mod_ids": [],
+            "map_ids": [],
+            "mod_items": [
+                {
+                    "mod_id": "ModB",
+                    "mod_name": "Inactive Mod",
+                    "workshop_id": "222222",
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    page = client.get(f"/profiles/{profile_id}/mods-maps")
+    assert page.status_code == 200
+    assert "Inactive Mod" in page.text
+    assert '<textarea name="mod_ids_text"></textarea>' in page.text
+    assert 'data-mod-id="ModB"' in page.text
+    assert 'data-workshop-id="222222"' in page.text
+    assert 'data-active="no"' in page.text
+
+
+def test_mods_maps_save_live_uses_table_active_mods_as_source_of_truth(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+
+    response = client.post(
+        f"/api/profiles/{profile_id}/mods-maps/draft",
+        json={
+            "workshop_ids": ["111111", "222222"],
+            "mod_ids": ["ModA"],
+            "map_ids": ["MapOne"],
+            "mod_items": [
+                {
+                    "mod_id": "ModA",
+                    "mod_name": "Active Mod",
+                    "workshop_id": "111111",
+                },
+                {
+                    "mod_id": "ModB",
+                    "mod_name": "Inactive Mod",
+                    "workshop_id": "222222",
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+    page = client.get(f"/profiles/{profile_id}/mods-maps")
+    csrf = extract_csrf(page.text)
+    response = client.post(
+        f"/profiles/{profile_id}/mods-maps",
+        data={
+            "csrf_token": csrf,
+            "action": "save_live",
+            "browser_query": "",
+            "browser_search_kind": "all",
+            "preview_workshop_id": "",
+            "workshop_ids_text": "111111\n222222",
+            "mod_ids_text": "ModA\nModB",
+            "map_ids_text": "MapOne",
+            "preset_name": "",
+            "preset_id": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    ini_path = Path(client.app.state.settings.servers_root) / profile_id / "cache" / "Server" / "mainserver.ini"
+    content = ini_path.read_text(encoding="utf-8")
+    assert "Mods=ModA" in content
+    assert "ModB" not in content
+
+
+def test_mods_maps_named_preset_backend_remains_compatible(client) -> None:
     bootstrap_owner(client)
     profile_id = create_profile(client)
 
@@ -1424,7 +1852,11 @@ def test_mods_maps_named_preset_can_be_saved_and_applied(client) -> None:
     )
 
     page = client.get(f"/profiles/{profile_id}/mods-maps")
-    assert "Baseline Pack" in page.text
+    assert "Baseline Pack" not in page.text
+    with client.app.state.session_factory() as db:
+        preset = db.scalar(select(WorkshopPreset).where(WorkshopPreset.profile_id == profile_id))
+        assert preset is not None
+        preset_id = preset.id
 
     csrf = extract_csrf(page.text)
     client.post(
@@ -1442,7 +1874,6 @@ def test_mods_maps_named_preset_can_be_saved_and_applied(client) -> None:
 
     page = client.get(f"/profiles/{profile_id}/mods-maps")
     csrf = extract_csrf(page.text)
-    preset_id = page.text.split('name="preset_id" value="')[1].split('"')[0]
     client.post(
         f"/profiles/{profile_id}/mods-maps",
         data={
@@ -1465,13 +1896,16 @@ def test_mods_maps_named_preset_can_be_saved_and_applied(client) -> None:
 
 def test_mods_maps_page_exposes_steam_search_and_collection_preview(client) -> None:
     class FakeWorkshopBrowserService:
-        def search(self, profile, *, current_workshop_ids, current_mod_ids, current_map_ids, query, api_key, take=24):
+        def search(self, profile, *, current_workshop_ids, current_mod_ids, current_map_ids, query, api_key, search_kind="all", required_tags=None, take=24):
             assert query == "collection pack"
+            assert search_kind == "collection"
+            assert required_tags == ["Build 42", "Map"]
             assert api_key == "steam-key-123"
             return WorkshopBrowserSearchResult(
                 query=query,
+                search_kind=search_kind,
                 has_api_key=True,
-                diagnostics=["Steam Workshop search is enabled with the configured Web API key."],
+                diagnostics=["Steam Workshop collection search is enabled with the configured Web API key."],
                 items=[
                     WorkshopBrowserItem(
                         workshop_id="999888777",
@@ -1488,7 +1922,7 @@ def test_mods_maps_page_exposes_steam_search_and_collection_preview(client) -> N
                         map_ids=[],
                         child_workshop_ids=["111", "222"],
                         collection_item_count=2,
-                        tags=["collection", "hardcore"],
+                        tags=["collection", "hardcore", "Build 42", "Map"],
                     )
                 ],
             )
@@ -1520,6 +1954,11 @@ def test_mods_maps_page_exposes_steam_search_and_collection_preview(client) -> N
                     WorkshopBrowserPreviewChild("111", "Child One", True, False),
                     WorkshopBrowserPreviewChild("222", "Child Two", False, False),
                 ],
+                dependency_children=[],
+                dependency_workshop_ids_to_add=[],
+                dependency_mod_ids_to_add=[],
+                dependency_map_ids_to_add=[],
+                mod_names_by_id={"MegaMod": "Mega Collection", "WeatherMod": "Mega Collection"},
             )
 
     bootstrap_owner(client)
@@ -1540,15 +1979,24 @@ def test_mods_maps_page_exposes_steam_search_and_collection_preview(client) -> N
         host_settings.steam_web_api_key = "steam-key-123"
         db.commit()
 
-    page = client.get(f"/profiles/{profile_id}/mods-maps?q=collection pack&preview=999888777")
+    page = client.get(f"/profiles/{profile_id}/mods-maps?q=collection pack&kind=collection&tags=Build%2042,Map&preview=999888777")
     assert page.status_code == 200
     assert "Local Cache and Steam Search" in page.text
-    assert "Steam Workshop search is enabled with the configured Web API key." in page.text
+    assert "Steam Workshop collection search is enabled with the configured Web API key." in page.text
+    assert '<option value="collection" selected>Collections only</option>' in page.text
+    assert "/mods-maps?q=collection%20pack&kind=collection&tags=Build%2042%2CMap&preview=999888777" in page.text
+    assert 'value="Build 42"' in page.text
+    assert 'value="Map"' in page.text
+    assert page.text.count("checked") >= 2
     assert "Mega Collection" in page.text
     assert "Add Collection To Editor" in page.text
+    assert "Add Mod IDs And Workshop" not in page.text
+    assert "Add Maps And Workshop" not in page.text
     assert "Child One" in page.text
     assert "Child Two" in page.text
     assert 'data-workshop-ids="111||222"' in page.text
+    assert 'data-queue-mods' not in page.text
+    assert 'data-queue-maps' not in page.text
 
 
 def test_mods_maps_admin_can_save_and_clear_steam_workshop_api_key(client) -> None:
@@ -1564,12 +2012,13 @@ def test_mods_maps_admin_can_save_and_clear_steam_workshop_api_key(client) -> No
             "action": "save_workshop_api_key",
             "steam_web_api_key": "steam-key-456",
             "browser_query": "collection",
+            "browser_search_kind": "collection",
             "preview_workshop_id": "999",
         },
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == f"/profiles/{profile_id}/mods-maps?q=collection&preview=999"
+    assert response.headers["location"] == f"/profiles/{profile_id}/mods-maps?q=collection&kind=collection&preview=999"
 
     with client.app.state.session_factory() as db:
         host_settings = db.get(HostSettings, 1)
@@ -1582,6 +2031,7 @@ def test_mods_maps_admin_can_save_and_clear_steam_workshop_api_key(client) -> No
             "csrf_token": csrf,
             "action": "clear_workshop_api_key",
             "browser_query": "collection",
+            "browser_search_kind": "collection",
             "preview_workshop_id": "999",
         },
         follow_redirects=False,

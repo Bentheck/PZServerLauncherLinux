@@ -205,6 +205,7 @@ class WorkshopCatalogItem:
     title: str
     mod_ids: list[str]
     map_ids: list[str]
+    mod_dependencies: dict[str, list[str]]
     source_path: str
 
 
@@ -410,7 +411,6 @@ class ProjectZomboidConfigService:
 
     def save_network_settings(self, profile: ServerProfile, values: dict[str, object]) -> Path:
         doc = self._load_ini(profile)
-        existing_password = doc.get("Password", "") or ""
         existing_rcon_password = doc.get("RCONPassword", "") or ""
         launcher_secrets = self._load_launcher_secrets(profile)
         existing_admin_password = launcher_secrets.get("AdminPassword", doc.get("AdminPassword", "") or "")
@@ -423,7 +423,7 @@ class ProjectZomboidConfigService:
         submitted_rcon_password = str(values["rcon_password"]).strip()
         submitted_admin_password = str(values["admin_password"]).strip()
 
-        doc.set("Password", submitted_password if submitted_password else existing_password)
+        doc.set("Password", submitted_password)
         doc.set("RCONPassword", submitted_rcon_password if submitted_rcon_password else existing_rcon_password)
         self._save_launcher_secrets(
             profile,
@@ -667,6 +667,7 @@ class ProjectZomboidConfigService:
 
                 existing.mod_ids = _parse_list(_join_list([*existing.mod_ids, *item.mod_ids]))
                 existing.map_ids = _parse_list(_join_list([*existing.map_ids, *item.map_ids]))
+                existing.mod_dependencies.update(item.mod_dependencies)
                 if existing.title == existing.workshop_id and item.title != item.workshop_id:
                     existing.title = item.title
 
@@ -998,6 +999,7 @@ class ProjectZomboidConfigService:
         workshop_meta = self._read_simple_key_value_file(item_dir / "workshop.txt")
         mod_ids: list[str] = []
         map_ids: list[str] = []
+        mod_dependencies: dict[str, list[str]] = {}
         title_candidates: list[str] = []
 
         for mods_root in (item_dir / "mods", item_dir / "Contents" / "mods"):
@@ -1009,6 +1011,18 @@ class ProjectZomboidConfigService:
                 mod_id = mod_meta.get("id", "").strip() or mod_dir.name
                 if mod_id:
                     mod_ids.append(mod_id)
+                    dependency_values = _parse_list(
+                        _join_list(
+                            [
+                                mod_meta.get("require", ""),
+                                mod_meta.get("requires", ""),
+                                mod_meta.get("depends", ""),
+                                mod_meta.get("dependencies", ""),
+                            ]
+                        ),
+                        allow_comma_fallback=True,
+                    )
+                    mod_dependencies[mod_id] = dependency_values
 
                 mod_name = mod_meta.get("name", "").strip()
                 if mod_name:
@@ -1033,6 +1047,7 @@ class ProjectZomboidConfigService:
             title=title,
             mod_ids=_parse_list(_join_list(mod_ids)),
             map_ids=_parse_list(_join_list(map_ids)),
+            mod_dependencies=mod_dependencies,
             source_path=str(item_dir),
         )
 

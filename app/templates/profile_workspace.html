@@ -171,7 +171,7 @@
             <h2>Recent Commands</h2>
         </div>
     </div>
-    <div class="card-stack" data-command-history>
+    <div class="card-stack command-history-scroll" data-command-history>
         {% if recent_commands %}
             {% for command in recent_commands %}
             <div class="list-card static command-card"><strong>{{ command }}</strong></div>
@@ -721,11 +721,11 @@
     <article class="panel form-panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Compare & Filter</p>
-                <h2>Preset View and Category Focus</h2>
+                <p class="eyebrow">Compare & Search</p>
+                <h2>Preset View and Field Search</h2>
             </div>
         </div>
-        <form method="get" class="grid-form">
+        <form method="get" class="grid-form" data-sandbox-filter-form>
             <label>
                 <span>Preset Comparison</span>
                 <select name="preset_id">
@@ -738,15 +738,7 @@
                 <span>Search</span>
                 <input name="q" value="{{ sandbox_search }}" placeholder="Transmission, loot, vehicles...">
             </label>
-            <label>
-                <span>Category</span>
-                <select name="category">
-                    <option value="">All categories</option>
-                    {% for category in sandbox_category_overview %}
-                    <option value="{{ category.id }}" {% if sandbox_active_category == category.id %}selected{% endif %}>{{ category.title }}</option>
-                    {% endfor %}
-                </select>
-            </label>
+            <input type="hidden" name="category" value="{{ sandbox_active_category }}">
             <div class="action-row">
                 <button class="button button-subtle" type="submit">Update View</button>
                 <a class="button button-subtle" href="/profiles/{{ profile.id }}/sandbox">Clear Filters</a>
@@ -793,7 +785,7 @@
         <a class="button button-subtle" href="/profiles/{{ profile.id }}/advanced-files">Open Raw Files</a>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="sandbox-categories-overview">
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Categories</p>
@@ -801,12 +793,12 @@
             </div>
         </div>
         <div class="stats-grid sandbox-category-overview">
-            <a class="list-card static sandbox-category-card{% if not sandbox_active_category %} active{% endif %}" href="{{ sandbox_url_builder(preset_id=sandbox_selected_preset_id, search=sandbox_search, category='') }}">
+            <a class="list-card static sandbox-category-card{% if not sandbox_active_category %} active{% endif %}" href="{{ sandbox_url_builder(preset_id=sandbox_selected_preset_id, search=sandbox_search, category='') }}#sandbox-categories-overview">
                 <strong>All Categories</strong>
                 <span>{{ sandbox_category_overview|length }} category group(s)</span>
             </a>
             {% for category in sandbox_category_overview %}
-            <a class="list-card static sandbox-category-card{% if sandbox_active_category == category.id %} active{% endif %}" href="{{ sandbox_url_builder(preset_id=sandbox_selected_preset_id, search=sandbox_search, category=category.id) }}">
+            <a class="list-card static sandbox-category-card{% if sandbox_active_category == category.id %} active{% endif %}" href="{{ sandbox_url_builder(preset_id=sandbox_selected_preset_id, search=sandbox_search, category=category.id) }}#sandbox-category-{{ category.id }}">
                 <strong>{{ category.title }}</strong>
                 <span>{{ category.status_text }}</span>
             </a>
@@ -815,32 +807,37 @@
     </section>
 
     {% if sandbox_categories %}
+        <section class="card-stack sandbox-accordion">
         {% for category in sandbox_categories %}
-        <article class="panel form-panel" id="sandbox-category-{{ category.id }}">
-            <div class="section-heading">
-                <div>
-                    <p class="eyebrow">Category</p>
-                    <h2>{{ category.title }}</h2>
-                    <p class="empty">{{ category.status_text }}</p>
-                </div>
-                {% if sandbox_selected_preset %}
-                <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="reset_category:{{ category.id }}" type="submit">Reset Category To Preset</button>
-                {% endif %}
-            </div>
+        <details class="panel form-panel sandbox-category-panel" id="sandbox-category-{{ category.id }}" {% if sandbox_active_category == category.id or sandbox_search %}open{% endif %}>
+            <summary class="sandbox-category-summary">
+                <span>
+                    <span class="eyebrow">Category</span>
+                    <strong>{{ category.title }}</strong>
+                    <small>{{ category.status_text }}</small>
+                </span>
+                <span class="sandbox-summary-hint">Open</span>
+            </summary>
 
-            <div class="card-stack">
+            {% if sandbox_selected_preset %}
+            <div class="action-row sandbox-category-actions">
+                <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/presets" name="action" value="reset_category:{{ category.id }}" type="submit">Reset Category To Preset</button>
+            </div>
+            {% endif %}
+
+            <div class="card-stack sandbox-section-stack">
                 {% for section in category.sections %}
-                <section class="sandbox-section">
-                    <div class="section-heading">
-                        <div>
-                            <p class="eyebrow">{{ section.definition.category_title }}</p>
-                            <h3>{{ section.definition.title }}</h3>
-                        </div>
+                <details class="sandbox-section" {% if sandbox_active_category == category.id or sandbox_search %}open{% endif %}>
+                    <summary class="sandbox-section-summary">
+                        <span>
+                            <span class="eyebrow">{{ section.definition.category_title }}</span>
+                            <strong>{{ section.definition.title }}</strong>
+                            <small>{{ section.definition.description }}</small>
+                        </span>
                         {% if section.compared_field_count %}
                         <span class="pill">{{ section.matching_field_count }}/{{ section.compared_field_count }} match</span>
                         {% endif %}
-                    </div>
-                    <p class="empty">{{ section.definition.description }}</p>
+                    </summary>
                     <div class="sandbox-grid">
                         {% for field in section.fields %}
                         <div class="sandbox-field-block{% if field.definition.field_type == 'textarea' %} sandbox-span-full{% endif %}{% if field.has_preset_value and not field.matches_preset %} sandbox-field-block-changed{% endif %}">
@@ -892,11 +889,12 @@
                         </div>
                         {% endfor %}
                     </div>
-                </section>
+                </details>
                 {% endfor %}
             </div>
-        </article>
+        </details>
         {% endfor %}
+        </section>
     {% else %}
     <section class="panel">
         <div class="section-heading">
@@ -938,7 +936,30 @@
         <button class="button button-subtle" formaction="/profiles/{{ profile.id }}/sandbox/draft" name="action" value="discard_draft" type="submit">Discard Draft</button>
     </section>
 </form>
+<script>
+(() => {
+    const form = document.querySelector("[data-sandbox-filter-form]");
+    if (!form) {
+        return;
+    }
+    form.addEventListener("submit", () => {
+        const categoryId = form.querySelector('input[name="category"]')?.value || "";
+        form.action = categoryId ? `#sandbox-category-${encodeURIComponent(categoryId)}` : "#sandbox-categories-overview";
+    });
+})();
+</script>
 {% elif active_page == "mods-maps" %}
+{% if mods_maps_has_draft %}
+<section class="panel sandbox-draft-banner">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Draft</p>
+            <h2>The Mods & Maps editor has unsaved draft changes</h2>
+        </div>
+    </div>
+    <p>Your mod selection is saved in the launcher database. Click Save to Server when you want to write the active mods, maps, and Workshop IDs to the server config.</p>
+</section>
+{% endif %}
 <section class="stats-grid">
     <article class="panel stat-card">
         <span class="stat-label">Local Workshop Cache</span>
@@ -951,17 +972,26 @@
         <p>{% if workshop_browser_has_api_key %}Steam search and collection lookup are enabled.{% else %}Local search is active. Add a Steam Web API key to unlock Steam search and collection discovery.{% endif %}</p>
     </article>
     <article class="panel stat-card">
-        <span class="stat-label">Live Stack</span>
+        <span class="stat-label">Server Config</span>
         <strong class="stat-value">{{ mods_maps_settings.mod_ids|length }} mods</strong>
         <p>{{ mods_maps_settings.workshop_ids|length }} workshop IDs | {{ mods_maps_settings.map_ids|length }} maps | {{ mods_maps_validation.resolved_workshop_ids|length }} workshop IDs after local auto-resolution.</p>
     </article>
-    <article class="panel stat-card">
-        <span class="stat-label">Recovery Library</span>
-        <strong class="stat-value">{{ named_presets|length }}</strong>
-        <p>{{ mods_maps_validation.missing_mod_ids|length + mods_maps_validation.missing_map_ids|length + mods_maps_validation.missing_workshop_ids|length }} validation alerts are currently active for the live stack.</p>
-    </article>
 </section>
 
+<section class="panel mods-tabs-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Workspace</p>
+            <h2>Mods & Maps Mode</h2>
+        </div>
+    </div>
+    <nav class="subnav mods-maps-subnav" aria-label="Mods and maps sections">
+        <button class="active" type="button" data-mods-tab-button="browse">Browse & Add</button>
+        <button type="button" data-mods-tab-button="live">Live Editor</button>
+    </nav>
+</section>
+
+<div data-mods-tab-panel="browse">
 <section class="two-up mods-browser-grid">
     <article class="panel form-panel">
         <div class="section-heading">
@@ -976,11 +1006,16 @@
         <form method="post" action="/profiles/{{ profile.id }}/mods-maps" class="card-stack">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
+            <input type="hidden" name="browser_search_kind" value="{{ mods_maps_search_kind }}">
+            <input type="hidden" name="browser_tags" value="{{ mods_maps_selected_tags|join(',') }}">
             <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
             <label>
                 <span>Steam Web API Key</span>
                 <input name="steam_web_api_key" type="password" placeholder="{% if workshop_browser_has_api_key %}A key is already stored. Enter a new one to replace it.{% else %}Paste a Steam Web API user key to enable online search{% endif %}">
             </label>
+            {% if not workshop_browser_has_api_key %}
+            <p class="empty">Need a key? Sign in at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a>, enter your server name or IP in the domain field, then paste the generated key here.</p>
+            {% endif %}
             <div class="action-row">
                 <button class="button button-subtle" type="submit" name="action" value="save_workshop_api_key">Save API Key</button>
                 {% if workshop_browser_has_api_key %}
@@ -992,9 +1027,33 @@
         <p class="empty">{% if workshop_browser_has_api_key %}A Steam Web API key is already stored for this host.{% else %}An admin can save a Steam Web API key here to unlock Steam search and collection import.{% endif %}</p>
         {% endif %}
 
-        <form method="get" action="/profiles/{{ profile.id }}/mods-maps" class="inline-form">
+        <form method="get" action="/profiles/{{ profile.id }}/mods-maps" class="workshop-search-form">
             <input name="q" value="{{ mods_maps_query }}" placeholder="Search mod / collection name, or paste a Workshop item / collection URL / ID">
-            <button class="button button-subtle" type="submit">Search Browser</button>
+            <div class="workshop-search-options">
+                <select name="kind" aria-label="Workshop search type">
+                    <option value="all" {% if mods_maps_search_kind == "all" %}selected{% endif %}>Mods and collections</option>
+                    <option value="mod" {% if mods_maps_search_kind == "mod" %}selected{% endif %}>Mods only</option>
+                    <option value="map" {% if mods_maps_search_kind == "map" %}selected{% endif %}>Maps only</option>
+                    <option value="collection" {% if mods_maps_search_kind == "collection" %}selected{% endif %}>Collections only</option>
+                </select>
+                <button class="button button-subtle" type="submit">Search Browser</button>
+            </div>
+            <div class="workshop-tag-filter">
+                <label>
+                    <span>Steam tags, comma separated</span>
+                    <input name="tags" data-workshop-tags-input value="{{ mods_maps_selected_tags|join(', ') }}" placeholder="Build 42, Multiplayer, Map">
+                </label>
+                {% if workshop_browser_available_tags %}
+                <div class="workshop-tag-choices" aria-label="Discovered Steam Workshop tags">
+                    {% for tag in workshop_browser_available_tags %}
+                    <label class="tag-choice">
+                        <input type="checkbox" name="tags" value="{{ tag }}" data-workshop-tag-choice {% if tag in mods_maps_selected_tags %}checked{% endif %}>
+                        <span>{{ tag }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
         </form>
 
         <div class="card-stack">
@@ -1023,21 +1082,9 @@
                         No mod or map metadata has been resolved for this result yet.
                         {% endif %}
                     </small>
-                    <small>Installed locally: {{ "yes" if item.is_installed_locally else "no" }} | Already queued: {{ "yes" if item.is_queued else "no" }}{% if item.kind == "collection" %} | {{ item.collection_item_count }} child item(s){% endif %}</small>
+                    <small>Installed locally: {{ "yes" if item.is_installed_locally else "no" }} | Already in editor: {{ "yes" if item.is_queued else "no" }}{% if item.kind == "collection" %} | {{ item.collection_item_count }} child item(s){% endif %}</small>
                     <div class="action-row">
-                        <a class="button button-subtle" href="/profiles/{{ profile.id }}/mods-maps?q={{ mods_maps_query }}&preview={{ item.workshop_id }}">Preview</a>
-                        {% if item.kind == "item" and (item.mod_ids or item.map_ids or item.is_installed_locally) %}
-                        <button
-                            class="button button-subtle"
-                            type="button"
-                            data-queue-pack
-                            data-workshop-ids="{{ item.workshop_id }}"
-                            data-mods="{{ item.mod_ids|join('||') }}"
-                            data-maps="{{ item.map_ids|join('||') }}"
-                        >
-                            Queue Whole Pack
-                        </button>
-                        {% endif %}
+                        <a class="button button-subtle" href="/profiles/{{ profile.id }}/mods-maps?q={{ mods_maps_query|urlencode }}{% if mods_maps_search_kind != 'all' %}&kind={{ mods_maps_search_kind }}{% endif %}{% if mods_maps_selected_tags %}&tags={{ mods_maps_selected_tags|join(',')|urlencode }}{% endif %}&preview={{ item.workshop_id }}#workshop-preview">Preview</a>
                     </div>
                 </article>
                 {% endfor %}
@@ -1047,7 +1094,7 @@
         </div>
     </article>
 
-    <article class="panel form-panel">
+    <article class="panel form-panel mods-preview-panel" id="workshop-preview">
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Preview</p>
@@ -1091,7 +1138,7 @@
         {% endif %}
         <div class="mods-preview-stack">
             {% if preview_item.description %}
-            <p class="empty">{{ preview_item.description }}</p>
+            <p class="empty mods-preview-description">{{ preview_item.description }}</p>
             {% endif %}
             {% if preview_item.tags %}
             <div>
@@ -1134,7 +1181,21 @@
                     {% for child in workshop_browser_preview.collection_children %}
                     <div class="list-card static">
                         <strong>{{ child.title }}</strong>
-                        <small>{{ child.workshop_id }} | installed locally: {{ "yes" if child.is_installed_locally else "no" }} | queued: {{ "yes" if child.is_queued else "no" }}</small>
+                        <small>{{ child.workshop_id }} | installed locally: {{ "yes" if child.is_installed_locally else "no" }} | in editor: {{ "yes" if child.is_queued else "no" }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if workshop_browser_preview.dependency_children %}
+            <div>
+                <p class="eyebrow">Dependencies</p>
+                <p class="empty">These required Workshop items were reported by Steam. Dependencies already in the editor are shown here but are not added again.</p>
+                <div class="card-stack">
+                    {% for child in workshop_browser_preview.dependency_children %}
+                    <div class="list-card static">
+                        <strong>{{ child.title }}</strong>
+                        <small>{{ child.workshop_id }} | installed locally: {{ "yes" if child.is_installed_locally else "no" }} | in editor: {{ "yes" if child.is_queued else "no" }}</small>
                     </div>
                     {% endfor %}
                 </div>
@@ -1142,162 +1203,218 @@
             {% endif %}
         </div>
         <div class="action-row">
+            {% if workshop_browser_preview.dependency_children %}
             <button
                 class="button"
                 type="button"
                 data-queue-pack
+                data-title="{{ preview_item.title }}"
+                data-mod-names="{{ workshop_browser_preview.mod_names_by_id|tojson|forceescape }}"
+                data-workshop-ids="{{ (workshop_browser_preview.dependency_workshop_ids_to_add + workshop_browser_preview.workshop_ids_to_add)|join('||') }}"
+                data-mods="{{ workshop_browser_preview.dependency_mod_ids_to_add|join('||') }}"
+                data-root-mods="{{ workshop_browser_preview.mod_ids_to_add|join('||') }}"
+                data-dependency-mods="{{ workshop_browser_preview.dependency_mod_ids_to_add|join('||') }}"
+                data-maps="{{ workshop_browser_preview.dependency_map_ids_to_add|join('||') }}"
+            >
+                Add With Dependencies
+            </button>
+            {% endif %}
+            <button
+                class="button{% if workshop_browser_preview.dependency_children %} button-subtle{% endif %}"
+                type="button"
+                data-queue-pack
+                data-title="{{ preview_item.title }}"
+                data-mod-names="{{ workshop_browser_preview.mod_names_by_id|tojson|forceescape }}"
                 data-workshop-ids="{{ workshop_browser_preview.workshop_ids_to_add|join('||') }}"
                 data-mods="{{ workshop_browser_preview.mod_ids_to_add|join('||') }}"
+                data-root-mods="{{ workshop_browser_preview.mod_ids_to_add|join('||') }}"
                 data-maps="{{ workshop_browser_preview.map_ids_to_add|join('||') }}"
             >
                 {% if preview_item.kind == "collection" %}Add Collection To Editor{% else %}Add To Editor{% endif %}
             </button>
-            <button
-                class="button button-subtle"
-                type="button"
-                data-queue-mods
-                data-mods="{{ workshop_browser_preview.mod_ids_to_add|join('||') }}"
-            >
-                Queue Mods Only
-            </button>
-            <button
-                class="button button-subtle"
-                type="button"
-                data-queue-maps
-                data-maps="{{ workshop_browser_preview.map_ids_to_add|join('||') }}"
-            >
-                Queue Maps Only
-            </button>
+            <span class="mods-add-confirmation" data-mods-add-confirmation aria-live="polite"></span>
         </div>
         {% else %}
-        <p class="empty">Pick a workshop result to preview its description, collection children, mod IDs, map folders, and queue impact before you add it to the editor.</p>
+        <p class="empty">Pick a workshop result to preview its description, collection children, mod IDs, map folders, and what will be added to the editor.</p>
         {% endif %}
     </article>
 </section>
+</div>
 
-<section class="two-up">
+<div data-mods-tab-panel="live" hidden>
+<section class="two-up mods-editor-shell">
     <article class="panel form-panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Ordered Preset Manager</p>
-                <h2>Live Mods, Maps, and Workshop IDs</h2>
+                <p class="eyebrow">Mod List</p>
+                <h2>Mods in the Editor</h2>
             </div>
         </div>
-        <p class="empty">The textareas remain the source of truth for the launcher. The ordered stacks below them let you reorder, remove, and queue content without losing direct-edit control.</p>
-        <form method="post" class="card-stack" data-mods-maps-form>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
-            <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
-            <div class="mods-textarea-stack">
-                <label>
-                    <span>Workshop IDs</span>
-                    <textarea name="workshop_ids_text" rows="6">{{ mods_maps_settings.workshop_ids_text }}</textarea>
-                </label>
-                <div class="card-stack mods-list-editor" data-list-editor="workshop"></div>
-            </div>
-            <div class="mods-textarea-stack">
-                <label>
-                    <span>Enabled Mod IDs</span>
-                    <textarea name="mod_ids_text" rows="6">{{ mods_maps_settings.mod_ids_text }}</textarea>
-                </label>
-                <div class="card-stack mods-list-editor" data-list-editor="mod"></div>
-            </div>
-            <div class="mods-textarea-stack">
-                <label>
-                    <span>Map Folders</span>
-                    <textarea name="map_ids_text" rows="5">{{ mods_maps_settings.map_ids_text }}</textarea>
-                </label>
-                <div class="card-stack mods-list-editor" data-list-editor="map"></div>
-            </div>
-            <label>
-                <span>Named Preset</span>
-                <input name="preset_name" placeholder="Modded PvE Baseline">
-            </label>
-            <div class="action-row">
-                <button class="button" type="submit" name="action" value="save_live">Save Live Stack</button>
-                <button class="button button-subtle" type="submit" name="action" value="save_preset">Save Named Preset</button>
-                <button class="button button-subtle" type="submit" name="action" value="scan_live">Scan Installed Workshop And Apply</button>
-            </div>
-        </form>
-    </article>
-
-    <article class="panel form-panel">
-        <div class="section-heading">
-            <div>
-                <p class="eyebrow">Diagnostics</p>
-                <h2>Validation and Recovery Hints</h2>
-            </div>
-        </div>
-        <div class="card-stack">
-            {% for note in mods_maps_validation.diagnostics %}
-            <div class="list-card static">
-                <strong>{{ note }}</strong>
-            </div>
-            {% endfor %}
-        </div>
-        <div class="card-stack mods-validation-list">
-            {% for bucket in mods_maps_validation.buckets %}
-            <article class="list-card static diagnostic-card diagnostic-card-{{ bucket.tone }}">
-                <strong>{{ bucket.label }}</strong>
-                {% for item in bucket.items %}
-                <small>{{ item }}</small>
+        <p class="empty">Select a mod to inspect its Workshop entry. A checkmark means it is currently active and will be added to the mod list for the server.</p>
+        <div class="card-stack mods-name-list">
+            {% if mods_maps_editor_catalog %}
+                <div class="mods-table-header">
+                    <span></span>
+                    <span>Order</span>
+                    <span>Mod Name</span>
+                    <span></span>
+                    <span></span>
+                </div>
+                {% for item in mods_maps_editor_catalog %}
+                <button
+                    class="list-card static mods-name-card{% if item.is_active %} active{% endif %}"
+                    type="button"
+                    draggable="true"
+                    data-mod-detail-button
+                    data-row-id="{{ item.row_id }}"
+                    data-mod-id="{{ item.mod_id }}"
+                    data-mod-title="{{ item.title }}"
+                    data-workshop-id="{{ item.workshop_id }}"
+                    data-map-ids="{{ item.map_ids|join('||') }}"
+                    data-mod-dependencies="{{ item.dependencies|join('||') }}"
+                    data-installed="{{ 'yes' if item.is_installed else 'no' }}"
+                    data-active="{{ 'yes' if item.is_active else 'no' }}"
+                >
+                    <span class="mods-active-mark" data-mod-toggle title="{{ 'Deactivate' if item.is_active else 'Activate' }}" aria-label="{{ 'Deactivate' if item.is_active else 'Activate' }}">{{ "✓" if item.is_active else "" }}</span>
+                    <span class="mods-order-number" data-mod-order-number>-</span>
+                    <strong class="mods-row-name">{{ item.title }}</strong>
+                    <span class="mods-order-controls">
+                        <span data-mod-move="-1" title="Move up" aria-label="Move up">↑</span>
+                        <span data-mod-move="1" title="Move down" aria-label="Move down">↓</span>
+                    </span>
+                    <span class="mods-remove-mark" data-mod-remove title="Remove" aria-label="Remove">×</span>
+                </button>
                 {% endfor %}
-            </article>
-            {% endfor %}
+            {% else %}
+            <p class="empty">No mods have been added to the editor yet.</p>
+            {% endif %}
         </div>
     </article>
+
+    <article class="panel form-panel mods-editor-detail-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Workshop Preview</p>
+                <h2 data-mod-detail-title>Select a mod</h2>
+            </div>
+        </div>
+        <div class="mods-editor-preview-box">
+            <p class="empty" data-mod-detail-placeholder>Choose a mod on the left to see its Workshop ID, active state, and known map folders.</p>
+            <div class="mods-auto-preview-card" data-mod-workshop-preview hidden>
+                <span class="meta-label">Selected Workshop Item</span>
+                <strong data-mod-preview-name></strong>
+                <span data-mod-preview-summary></span>
+                <img class="mods-auto-preview-image" data-mod-preview-image alt="" hidden>
+                <p class="mods-preview-description" data-mod-preview-description hidden></p>
+                <div class="mods-auto-preview-meta" data-mod-preview-meta></div>
+            </div>
+            <div class="detail-grid" data-mod-detail-body hidden>
+                <div><span class="meta-label">Mod ID</span><code data-mod-detail-id></code></div>
+                <div><span class="meta-label">Workshop ID</span><code data-mod-detail-workshop></code></div>
+                <div><span class="meta-label">State</span><code data-mod-detail-state></code></div>
+                <div><span class="meta-label">Installed Locally</span><code data-mod-detail-installed></code></div>
+                <div class="sandbox-span-full"><span class="meta-label">Map Folders</span><code data-mod-detail-maps></code></div>
+            </div>
+            <div class="action-row mods-detail-actions" data-mod-detail-actions hidden>
+                <a class="button button-subtle" data-mod-detail-steam href="#" target="_blank" rel="noopener">Open Steam Page</a>
+            </div>
+        </div>
+    </article>
+</section>
+
+<section class="panel form-panel maps-editor-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Map List</p>
+            <h2>Maps in the Editor</h2>
+        </div>
+    </div>
+    <p class="empty">Maps are saved into the INI <code>Map=</code> order. Toggle a checkmark to activate or deactivate a map without touching the mod list.</p>
+    <div class="card-stack maps-name-list">
+        {% if mods_maps_map_catalog %}
+            <div class="maps-table-header">
+                <span></span>
+                <span>ID</span>
+                <span>Map Folder</span>
+                <span>Workshop ID</span>
+                <span></span>
+            </div>
+            {% for item in mods_maps_map_catalog %}
+            <button
+                class="list-card static maps-name-card{% if item.is_active %} active{% endif %}"
+                type="button"
+                data-map-row
+                data-map-id="{{ item.map_id }}"
+                data-workshop-id="{{ item.workshop_id }}"
+                data-active="{{ 'yes' if item.is_active else 'no' }}"
+            >
+                <span class="mods-active-mark" data-map-toggle title="{{ 'Deactivate map' if item.is_active else 'Activate map' }}" aria-label="{{ 'Deactivate map' if item.is_active else 'Activate map' }}">{{ "✓" if item.is_active else "" }}</span>
+                <span class="mods-row-id">{{ item.row_id }}</span>
+                <strong class="mods-row-name">{{ item.title }}</strong>
+                <small class="maps-row-workshop-id">{{ item.workshop_id or "Not resolved" }}</small>
+                <span class="mods-remove-mark" data-map-remove title="Remove map" aria-label="Remove map">×</span>
+            </button>
+            {% endfor %}
+        {% else %}
+        <p class="empty">No map folders have been added to the editor yet.</p>
+        {% endif %}
+    </div>
+</section>
+
+<form method="post" class="mods-hidden-state-form" data-mods-maps-form data-draft-url="/api/profiles/{{ profile.id }}/mods-maps/draft">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
+    <input type="hidden" name="browser_search_kind" value="{{ mods_maps_search_kind }}">
+    <input type="hidden" name="browser_tags" value="{{ mods_maps_selected_tags|join(',') }}">
+    <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
+    <textarea name="workshop_ids_text">{{ mods_maps_settings.workshop_ids_text }}</textarea>
+    <textarea name="mod_ids_text">{{ mods_maps_settings.mod_ids_text }}</textarea>
+    <textarea name="map_ids_text">{{ mods_maps_settings.map_ids_text }}</textarea>
+    <input name="preset_name" value="">
+    <button type="submit" name="action" value="save_live" data-save-live-hidden>Save to Server</button>
+    <button type="submit" name="action" value="scan_live" data-scan-live-hidden>Scan Installed Workshop and Use It</button>
+</form>
+
+<section class="panel form-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Actions</p>
+            <h2>Write the Editor to the Server</h2>
+        </div>
+    </div>
+    <div class="action-row">
+        <button class="button" type="button" data-submit-hidden="save_live">Save to Server</button>
+        <button class="button button-subtle" type="button" data-auto-order-mods>Auto-order Active Mods</button>
+        <button class="button button-subtle" type="button" data-submit-hidden="scan_live">Scan Installed Workshop and Use It</button>
+    </div>
 </section>
 
 <section class="panel form-panel">
     <div class="section-heading">
         <div>
-            <p class="eyebrow">Preset Library</p>
-            <h2>Saved Recovery Packs</h2>
+            <p class="eyebrow">Diagnostics</p>
+            <h2>Validation and Recovery Hints</h2>
         </div>
     </div>
-    {% if named_presets %}
     <div class="card-stack">
-        {% for preset in named_presets %}
-        <article class="list-card static mods-catalog-card">
-            <strong>{{ preset.name }}</strong>
-            <span>{{ preset.workshop_ids|length }} workshop | {{ preset.mod_ids|length }} mods | {{ preset.map_ids|length }} maps</span>
-            <small>{% if preset.mod_ids %}Mods: {{ preset.mod_ids|join(", ") }}{% else %}No mod IDs were saved with this preset.{% endif %}</small>
-            <small>{% if preset.map_ids %}Maps: {{ preset.map_ids|join(", ") }}{% else %}No map folders were saved with this preset.{% endif %}</small>
-            <div class="action-row">
-                <button
-                    class="button button-subtle"
-                    type="button"
-                    data-load-preset
-                    data-workshop="{{ preset.workshop_ids|join('||') }}"
-                    data-mods="{{ preset.mod_ids|join('||') }}"
-                    data-maps="{{ preset.map_ids|join('||') }}"
-                >
-                    Load Into Editor
-                </button>
-                <form method="post" action="/profiles/{{ profile.id }}/mods-maps">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="action" value="apply_preset">
-                    <input type="hidden" name="preset_id" value="{{ preset.id }}">
-                    <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
-                    <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
-                    <button class="button button-subtle" type="submit">Apply Live</button>
-                </form>
-                <form method="post" action="/profiles/{{ profile.id }}/mods-maps">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="action" value="delete_preset">
-                    <input type="hidden" name="preset_id" value="{{ preset.id }}">
-                    <input type="hidden" name="browser_query" value="{{ mods_maps_query }}">
-                    <input type="hidden" name="preview_workshop_id" value="{{ mods_maps_preview_id }}">
-                    <button class="button button-subtle" type="submit">Delete</button>
-                </form>
-            </div>
+        {% for note in mods_maps_validation.diagnostics %}
+        <div class="list-card static">
+            <strong>{{ note }}</strong>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="card-stack mods-validation-list">
+        {% for bucket in mods_maps_validation.buckets %}
+        <article class="list-card static diagnostic-card diagnostic-card-{{ bucket.tone }}">
+            <strong>{{ bucket.label }}</strong>
+            {% for item in bucket.items %}
+            <small>{{ item }}</small>
+            {% endfor %}
         </article>
         {% endfor %}
     </div>
-    {% else %}
-    <p class="empty">No named presets saved yet.</p>
-    {% endif %}
 </section>
+</div>
 {% elif active_page == "network-admin" %}
 <section class="stats-grid">
     <article class="panel stat-card">
@@ -1338,7 +1455,7 @@
             </label>
             <label>
                 <span>Join Password</span>
-                <input name="server_password" type="password" placeholder="{% if network_settings.has_server_password %}Leave blank to keep current password{% else %}Optional{% endif %}">
+                <input name="server_password" type="password" placeholder="{% if network_settings.has_server_password %}Blank clears the join password{% else %}Optional; blank is passwordless{% endif %}">
             </label>
             <label>
                 <span>RCON Password</span>
@@ -1718,7 +1835,7 @@
                 <h2>Recent Commands</h2>
             </div>
         </div>
-        <div class="card-stack" data-command-history>
+        <div class="card-stack command-history-scroll" data-command-history>
             {% if recent_commands %}
                 {% for command in recent_commands %}
                 <div class="list-card static command-card"><strong>{{ command }}</strong></div>
@@ -2012,9 +2129,280 @@
 {% if active_page == "mods-maps" %}
 <script>
 (() => {
+    const tabButtons = Array.from(document.querySelectorAll("[data-mods-tab-button]"));
+    const tabPanels = Array.from(document.querySelectorAll("[data-mods-tab-panel]"));
+    const tagInput = document.querySelector("[data-workshop-tags-input]");
+    const tagCheckboxes = Array.from(document.querySelectorAll("[data-workshop-tag-choice]"));
+    const validTabNames = new Set(tabButtons.map((button) => button.dataset.modsTabButton || "").filter(Boolean));
+    const tabStorageKey = "pzsl.modsMapsTab.{{ profile.id }}";
+    let liveEditorRefreshPending = false;
+    const getTabFromHash = () => {
+        const hash = window.location.hash.replace(/^#/, "");
+        if (hash.startsWith("mods-tab-")) {
+            const tabName = hash.replace("mods-tab-", "");
+            return validTabNames.has(tabName) ? tabName : "";
+        }
+        return hash === "workshop-preview" ? "browse" : "";
+    };
+    const setActiveTab = (tabName, options = {}) => {
+        const safeTabName = validTabNames.has(tabName) ? tabName : "browse";
+        tabButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.modsTabButton === safeTabName);
+        });
+        tabPanels.forEach((panel) => {
+            panel.hidden = panel.dataset.modsTabPanel !== safeTabName;
+        });
+        try {
+            window.localStorage.setItem(tabStorageKey, safeTabName);
+        } catch (_error) {
+        }
+        if (options.updateHash) {
+            const nextHash = `#mods-tab-${safeTabName}`;
+            if (window.location.hash !== nextHash) {
+                history.replaceState(null, "", nextHash);
+            }
+        }
+    };
+
+    tabButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const nextTab = button.dataset.modsTabButton || "browse";
+            if (nextTab === "live" && liveEditorRefreshPending) {
+                try {
+                    window.localStorage.setItem(tabStorageKey, "live");
+                } catch (_error) {
+                }
+                history.replaceState(null, "", "#mods-tab-live");
+                window.location.reload();
+                return;
+            }
+            setActiveTab(nextTab, { updateHash: true });
+        });
+    });
+    let storedModsTab = "browse";
+    try {
+        storedModsTab = window.localStorage.getItem(tabStorageKey) || window.localStorage.getItem("pzsl.modsMapsTab") || "browse";
+    } catch (_error) {
+    }
+    setActiveTab(getTabFromHash() || storedModsTab);
+    window.addEventListener("hashchange", () => {
+        const hashTab = getTabFromHash();
+        if (hashTab) {
+            setActiveTab(hashTab);
+        }
+    });
+    const parseTags = (value) => {
+        const seen = new Set();
+        const tags = [];
+        (value || "").split(",").map((item) => item.trim()).filter(Boolean).forEach((item) => {
+            const lowered = item.toLowerCase();
+            if (seen.has(lowered)) {
+                return;
+            }
+            seen.add(lowered);
+            tags.push(item);
+        });
+        return tags;
+    };
+    const syncTagCheckboxesFromInput = () => {
+        const selected = new Set(parseTags(tagInput?.value || "").map((item) => item.toLowerCase()));
+        tagCheckboxes.forEach((checkbox) => {
+            checkbox.checked = selected.has((checkbox.value || "").toLowerCase());
+        });
+    };
+    const syncTagInputFromCheckboxes = () => {
+        if (!tagInput) {
+            return;
+        }
+        const tags = parseTags(tagInput.value);
+        const seen = new Set(tags.map((item) => item.toLowerCase()));
+        tagCheckboxes.forEach((checkbox) => {
+            const value = checkbox.value || "";
+            const lowered = value.toLowerCase();
+            const existingIndex = tags.findIndex((item) => item.toLowerCase() === lowered);
+            if (checkbox.checked && value && !seen.has(lowered)) {
+                tags.push(value);
+                seen.add(lowered);
+            }
+            if (!checkbox.checked && existingIndex >= 0) {
+                tags.splice(existingIndex, 1);
+                seen.delete(lowered);
+            }
+        });
+        tagInput.value = tags.join(", ");
+    };
+    tagCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", syncTagInputFromCheckboxes);
+    });
+    tagInput?.addEventListener("input", syncTagCheckboxesFromInput);
+    syncTagCheckboxesFromInput();
+
     const form = document.querySelector("[data-mods-maps-form]");
     if (!form) {
         return;
+    }
+
+    function splitAttributeList(value) {
+        return (value || "")
+            .split("||")
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    const detailButtons = Array.from(document.querySelectorAll("[data-mod-detail-button]"));
+    let selectedModDetailButton = null;
+    const detailTitle = document.querySelector("[data-mod-detail-title]");
+    const detailPlaceholder = document.querySelector("[data-mod-detail-placeholder]");
+    const detailBody = document.querySelector("[data-mod-detail-body]");
+    const detailStateNode = document.querySelector("[data-mod-detail-state]");
+    const detailActions = document.querySelector("[data-mod-detail-actions]");
+    const detailSteamLink = document.querySelector("[data-mod-detail-steam]");
+    const detailPreviewCard = document.querySelector("[data-mod-workshop-preview]");
+    const detailPreviewName = document.querySelector("[data-mod-preview-name]");
+    const detailPreviewSummary = document.querySelector("[data-mod-preview-summary]");
+    const detailPreviewImage = document.querySelector("[data-mod-preview-image]");
+    const detailPreviewDescription = document.querySelector("[data-mod-preview-description]");
+    const detailPreviewMeta = document.querySelector("[data-mod-preview-meta]");
+    const addConfirmation = document.querySelector("[data-mods-add-confirmation]");
+    let previewRequestId = 0;
+    let addConfirmationTimeout = null;
+    const showAddConfirmation = (message) => {
+        if (!addConfirmation) {
+            return;
+        }
+        addConfirmation.textContent = message;
+        addConfirmation.classList.add("visible");
+        if (addConfirmationTimeout) {
+            window.clearTimeout(addConfirmationTimeout);
+        }
+        addConfirmationTimeout = window.setTimeout(() => {
+            addConfirmation.classList.remove("visible");
+        }, 4200);
+    };
+    const setDetailText = (selector, value) => {
+        const node = document.querySelector(selector);
+        if (node) {
+            node.textContent = value;
+        }
+    };
+    const resetWorkshopPreview = ({ title, message }) => {
+        if (detailPreviewCard) {
+            detailPreviewCard.hidden = false;
+        }
+        if (detailPreviewName) {
+            detailPreviewName.textContent = title;
+        }
+        if (detailPreviewSummary) {
+            detailPreviewSummary.textContent = message;
+        }
+        if (detailPreviewImage) {
+            detailPreviewImage.hidden = true;
+            detailPreviewImage.removeAttribute("src");
+            detailPreviewImage.alt = "";
+        }
+        if (detailPreviewDescription) {
+            detailPreviewDescription.hidden = true;
+            detailPreviewDescription.textContent = "";
+        }
+        if (detailPreviewMeta) {
+            detailPreviewMeta.replaceChildren();
+        }
+    };
+    const addPreviewMeta = (label, value) => {
+        if (!detailPreviewMeta || !value) {
+            return;
+        }
+        const pill = document.createElement("span");
+        pill.textContent = `${label}: ${value}`;
+        detailPreviewMeta.appendChild(pill);
+    };
+    const loadWorkshopPreview = async ({ workshopId, fallbackTitle }) => {
+        const requestId = ++previewRequestId;
+        if (!workshopId) {
+            resetWorkshopPreview({ title: fallbackTitle, message: "No Workshop ID is linked to this mod yet." });
+            return;
+        }
+
+        resetWorkshopPreview({ title: fallbackTitle, message: "Loading Workshop preview..." });
+        try {
+            const response = await fetch(`/api/profiles/{{ profile.id }}/mods-maps/workshop/${encodeURIComponent(workshopId)}/preview`, {
+                headers: { Accept: "application/json" },
+                credentials: "same-origin",
+            });
+            if (requestId !== previewRequestId) {
+                return;
+            }
+            if (!response.ok) {
+                resetWorkshopPreview({ title: fallbackTitle, message: `Workshop ID ${workshopId} is linked, but no preview data was found.` });
+                return;
+            }
+            const preview = await response.json();
+            if (detailPreviewName) {
+                detailPreviewName.textContent = preview.title || fallbackTitle;
+            }
+            if (detailPreviewSummary) {
+                detailPreviewSummary.textContent = `${preview.kind_label || "Workshop item"} from ${preview.source_label || "Workshop"} | ${preview.workshop_id || workshopId}`;
+            }
+            if (detailPreviewImage) {
+                if (preview.preview_url) {
+                    detailPreviewImage.src = preview.preview_url;
+                    detailPreviewImage.alt = preview.title || fallbackTitle;
+                    detailPreviewImage.hidden = false;
+                } else {
+                    detailPreviewImage.hidden = true;
+                    detailPreviewImage.removeAttribute("src");
+                }
+            }
+            if (detailPreviewDescription) {
+                const description = (preview.description || "").trim();
+                detailPreviewDescription.textContent = description || "No Workshop description was available.";
+                detailPreviewDescription.hidden = false;
+            }
+            if (detailPreviewMeta) {
+                detailPreviewMeta.replaceChildren();
+                addPreviewMeta("Mods", (preview.mod_ids || []).join(", "));
+                addPreviewMeta("Maps", (preview.map_ids || []).join(", "));
+                addPreviewMeta("Dependencies", (preview.dependency_children || []).length ? String(preview.dependency_children.length) : "");
+                addPreviewMeta("Collection Items", (preview.collection_children || []).length ? String(preview.collection_children.length) : "");
+            }
+        } catch (error) {
+            if (requestId === previewRequestId) {
+                resetWorkshopPreview({ title: fallbackTitle, message: `Workshop ID ${workshopId} is linked, but the preview request failed.` });
+            }
+        }
+    };
+    const selectModDetail = (button) => {
+        selectedModDetailButton = button;
+        detailButtons.forEach((item) => item.classList.toggle("selected", item === button));
+        if (detailTitle) {
+            detailTitle.textContent = button.dataset.modTitle || button.dataset.modId || "Selected mod";
+        }
+        if (detailPlaceholder) {
+            detailPlaceholder.hidden = true;
+        }
+        if (detailBody) {
+            detailBody.hidden = false;
+        }
+        const modId = button.dataset.modId || "";
+        const workshopId = button.dataset.workshopId || "";
+        const modTitle = button.dataset.modTitle || modId || "Selected mod";
+        setDetailText("[data-mod-detail-id]", modId || "Unknown");
+        setDetailText("[data-mod-detail-workshop]", workshopId || "Not resolved");
+        setDetailText("[data-mod-detail-state]", button.dataset.active === "yes" ? "Active" : "Inactive");
+        setDetailText("[data-mod-detail-installed]", button.dataset.installed === "yes" ? "Yes" : "No");
+        setDetailText("[data-mod-detail-maps]", splitAttributeList(button.dataset.mapIds || "").join(", ") || "No map folders resolved");
+        loadWorkshopPreview({ workshopId, fallbackTitle: modTitle });
+        if (detailActions) {
+            detailActions.hidden = !workshopId;
+        }
+        if (detailSteamLink) {
+            detailSteamLink.hidden = !workshopId;
+            detailSteamLink.href = workshopId ? `https://steamcommunity.com/sharedfiles/filedetails/?id=${encodeURIComponent(workshopId)}` : "#";
+        }
+    };
+    detailButtons.forEach((button) => button.addEventListener("click", () => selectModDetail(button)));
+    if (detailButtons.length) {
+        selectModDetail(detailButtons[0]);
     }
 
     const fieldMap = {
@@ -2022,11 +2410,37 @@
         mod: form.querySelector('textarea[name="mod_ids_text"]'),
         map: form.querySelector('textarea[name="map_ids_text"]'),
     };
-
-    const splitAttributeList = (value) => (value || "")
-        .split("||")
-        .map((item) => item.trim())
-        .filter(Boolean);
+    const draftItemMetadata = new Map();
+    const rememberDraftItem = ({ modId, modName, workshopId, dependencyModIds = [] }) => {
+        const normalizedModId = (modId || "").trim();
+        if (!normalizedModId) {
+            return;
+        }
+        draftItemMetadata.set(normalizedModId.toLowerCase(), {
+            mod_id: normalizedModId,
+            mod_name: (modName || normalizedModId).trim(),
+            workshop_id: (workshopId || "").trim(),
+            is_active: false,
+            sort_order: draftItemMetadata.size,
+            dependency_mod_ids: Array.from(new Set(dependencyModIds.map((item) => item.trim()).filter(Boolean))),
+        });
+    };
+    const forgetDraftItem = (modId) => {
+        const normalizedModId = (modId || "").trim().toLowerCase();
+        if (normalizedModId) {
+            draftItemMetadata.delete(normalizedModId);
+        }
+    };
+    detailButtons.forEach((button) => {
+        rememberDraftItem({
+            modId: button.dataset.modId || "",
+            modName: button.dataset.modTitle || "",
+            workshopId: button.dataset.workshopId || "",
+            dependencyModIds: splitAttributeList(button.dataset.modDependencies || ""),
+        });
+    });
+    const draftUrl = form.dataset.draftUrl || "";
+    let draftSaveTimer = 0;
 
     const normalizeList = (value) => {
         const seen = new Set();
@@ -2057,7 +2471,7 @@
 
         const items = normalizeList(textarea.value);
         if (!items.length) {
-            container.innerHTML = '<p class="empty">No entries queued yet.</p>';
+            container.innerHTML = '<p class="empty">No entries in this editor list yet.</p>';
             return;
         }
 
@@ -2082,9 +2496,291 @@
         renderField(fieldName);
     };
 
-    const appendUnique = (fieldName, items) => {
-        const current = normalizeList(fieldMap[fieldName]?.value || "");
+    const syncModCardOrderFromFields = () => {
+        const container = document.querySelector(".mods-name-list");
+        if (!container) {
+            return;
+        }
+        const activeOrder = normalizeList(fieldMap.mod?.value || "").map((item) => item.toLowerCase());
+        const orderIndex = new Map(activeOrder.map((item, index) => [item, index]));
+        const originalIndex = new Map(detailButtons.map((button, index) => [button, index]));
+        detailButtons
+            .slice()
+            .sort((left, right) => {
+                const leftMod = (left.dataset.modId || "").toLowerCase();
+                const rightMod = (right.dataset.modId || "").toLowerCase();
+                const leftActive = orderIndex.has(leftMod);
+                const rightActive = orderIndex.has(rightMod);
+                if (leftActive && rightActive) {
+                    return (orderIndex.get(leftMod) ?? 0) - (orderIndex.get(rightMod) ?? 0);
+                }
+                if (leftActive !== rightActive) {
+                    return leftActive ? -1 : 1;
+                }
+                return (originalIndex.get(left) ?? 0) - (originalIndex.get(right) ?? 0);
+            })
+            .forEach((button) => container.appendChild(button));
+    };
+
+    const syncModCardsFromFields = () => {
+        const activeModOrder = normalizeList(fieldMap.mod?.value || "").map((item) => item.toLowerCase());
+        const activeMods = new Set(activeModOrder);
+        const activeOrderIndex = new Map(activeModOrder.map((item, index) => [item, index]));
+        detailButtons.forEach((button) => {
+            const loweredModId = (button.dataset.modId || "").toLowerCase();
+            const isActive = activeMods.has(loweredModId);
+            button.dataset.active = isActive ? "yes" : "no";
+            button.classList.toggle("active", isActive);
+            button.draggable = isActive;
+            const mark = button.querySelector(".mods-active-mark");
+            if (mark) {
+                mark.textContent = isActive ? "✓" : "";
+            }
+            const orderNumber = button.querySelector("[data-mod-order-number]");
+            if (orderNumber) {
+                orderNumber.textContent = isActive ? String((activeOrderIndex.get(loweredModId) ?? 0) + 1) : "-";
+            }
+            const toggle = button.querySelector("[data-mod-toggle]");
+            if (toggle) {
+                toggle.textContent = isActive ? "✓" : "";
+                toggle.setAttribute("title", isActive ? "Deactivate" : "Activate");
+                toggle.setAttribute("aria-label", isActive ? "Deactivate" : "Activate");
+            }
+            const pill = button.querySelector(".mods-state-pill");
+            if (pill) {
+                pill.textContent = isActive ? "Active" : "Inactive";
+            }
+            if (button.classList.contains("selected") && detailStateNode) {
+                detailStateNode.textContent = isActive ? "Active" : "Inactive";
+            }
+        });
+        syncModCardOrderFromFields();
+    };
+
+    const moveModInLoadOrder = (modId, direction) => {
+        const currentMods = normalizeList(fieldMap.mod?.value || "");
+        const index = currentMods.findIndex((item) => item.toLowerCase() === modId.toLowerCase());
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= currentMods.length) {
+            return;
+        }
+        const [value] = currentMods.splice(index, 1);
+        currentMods.splice(nextIndex, 0, value);
+        updateField("mod", currentMods);
+        syncModCardsFromFields();
+        scheduleDraftSave();
+    };
+
+    let draggedModId = "";
+    const moveDraggedModBeforeTarget = (targetButton, event) => {
+        if (!draggedModId || !targetButton) {
+            return;
+        }
+        const targetModId = targetButton.dataset.modId || "";
+        const currentMods = normalizeList(fieldMap.mod?.value || "");
+        const draggedIndex = currentMods.findIndex((item) => item.toLowerCase() === draggedModId.toLowerCase());
+        const targetIndex = currentMods.findIndex((item) => item.toLowerCase() === targetModId.toLowerCase());
+        if (draggedIndex < 0 || targetIndex < 0 || draggedIndex === targetIndex) {
+            return;
+        }
+
+        const [draggedValue] = currentMods.splice(draggedIndex, 1);
+        const targetBox = targetButton.getBoundingClientRect();
+        const insertAfter = event.clientY > targetBox.top + targetBox.height / 2;
+        const adjustedTargetIndex = currentMods.findIndex((item) => item.toLowerCase() === targetModId.toLowerCase());
+        currentMods.splice(adjustedTargetIndex + (insertAfter ? 1 : 0), 0, draggedValue);
+        updateField("mod", currentMods);
+        syncModCardsFromFields();
+        scheduleDraftSave();
+    };
+
+    const autoOrderActiveMods = () => {
+        const currentMods = normalizeList(fieldMap.mod?.value || "");
+        const currentLookup = new Set(currentMods.map((item) => item.toLowerCase()));
+        const originalIndex = new Map(currentMods.map((item, index) => [item.toLowerCase(), index]));
+        const dependenciesByMod = new Map();
+        detailButtons.forEach((button) => {
+            const modId = button.dataset.modId || "";
+            if (!modId || !currentLookup.has(modId.toLowerCase())) {
+                return;
+            }
+            dependenciesByMod.set(
+                modId.toLowerCase(),
+                splitAttributeList(button.dataset.modDependencies || "")
+                    .filter((dependency) => currentLookup.has(dependency.toLowerCase()))
+                    .map((dependency) => dependency.toLowerCase())
+            );
+        });
+
+        const ordered = [];
+        const visiting = new Set();
+        const visited = new Set();
+        const byLower = new Map(currentMods.map((item) => [item.toLowerCase(), item]));
+        const visit = (lowered) => {
+            if (visited.has(lowered) || visiting.has(lowered)) {
+                return;
+            }
+            visiting.add(lowered);
+            const dependencies = dependenciesByMod.get(lowered) || [];
+            dependencies
+                .sort((left, right) => (originalIndex.get(left) ?? 0) - (originalIndex.get(right) ?? 0))
+                .forEach(visit);
+            visiting.delete(lowered);
+            visited.add(lowered);
+            ordered.push(byLower.get(lowered));
+        };
+        currentMods.map((item) => item.toLowerCase()).forEach(visit);
+
+        if (ordered.length === currentMods.length) {
+            updateField("mod", ordered);
+            syncModCardsFromFields();
+            scheduleDraftSave();
+        }
+    };
+
+    const mapRows = Array.from(document.querySelectorAll("[data-map-row]"));
+    const isWorkshopUsedByDraftMods = (workshopId) => {
+        const loweredWorkshopId = (workshopId || "").trim().toLowerCase();
+        if (!loweredWorkshopId) {
+            return false;
+        }
+
+        return Array.from(draftItemMetadata.values()).some((item) => (item.workshop_id || "").toLowerCase() === loweredWorkshopId);
+    };
+
+    const isWorkshopUsedByActiveMaps = (workshopId) => {
+        const loweredWorkshopId = (workshopId || "").trim().toLowerCase();
+        if (!loweredWorkshopId) {
+            return false;
+        }
+
+        const activeMaps = new Set(normalizeList(fieldMap.map?.value || "").map((item) => item.toLowerCase()));
+        return mapRows.some((button) => (
+            button.isConnected
+            && (button.dataset.workshopId || "").toLowerCase() === loweredWorkshopId
+            && activeMaps.has((button.dataset.mapId || "").toLowerCase())
+        ));
+    };
+
+    const removeWorkshopIfUnused = (workshopId) => {
+        const loweredWorkshopId = (workshopId || "").trim().toLowerCase();
+        if (!loweredWorkshopId || isWorkshopUsedByDraftMods(workshopId) || isWorkshopUsedByActiveMaps(workshopId)) {
+            return;
+        }
+
+        updateField(
+            "workshop",
+            normalizeList(fieldMap.workshop?.value || "").filter((item) => item.toLowerCase() !== loweredWorkshopId)
+        );
+    };
+
+    const forgetModButton = (button) => {
+        const index = detailButtons.indexOf(button);
+        if (index >= 0) {
+            detailButtons.splice(index, 1);
+        }
+        button.remove();
+
+        if (selectedModDetailButton === button) {
+            selectedModDetailButton = null;
+            if (detailButtons.length) {
+                selectModDetail(detailButtons[0]);
+            } else {
+                if (detailTitle) {
+                    detailTitle.textContent = "Select a mod";
+                }
+                if (detailPlaceholder) {
+                    detailPlaceholder.hidden = false;
+                }
+                if (detailBody) {
+                    detailBody.hidden = true;
+                }
+                if (detailActions) {
+                    detailActions.hidden = true;
+                }
+                resetWorkshopPreview({ title: "", message: "" });
+            }
+        }
+    };
+
+    const forgetMapRow = (button) => {
+        const index = mapRows.indexOf(button);
+        if (index >= 0) {
+            mapRows.splice(index, 1);
+        }
+        button.remove();
+    };
+
+    const syncMapRowsFromFields = () => {
+        const activeMaps = new Set(normalizeList(fieldMap.map?.value || "").map((item) => item.toLowerCase()));
+        mapRows.forEach((button) => {
+            const isActive = activeMaps.has((button.dataset.mapId || "").toLowerCase());
+            button.dataset.active = isActive ? "yes" : "no";
+            button.classList.toggle("active", isActive);
+            const toggle = button.querySelector("[data-map-toggle]");
+            if (toggle) {
+                toggle.textContent = isActive ? "✓" : "";
+                toggle.setAttribute("title", isActive ? "Deactivate map" : "Activate map");
+                toggle.setAttribute("aria-label", isActive ? "Deactivate map" : "Activate map");
+            }
+        });
+    };
+
+    const saveDraft = async () => {
+        if (!draftUrl) {
+            return false;
+        }
+
+        const activeOrder = new Map(normalizeList(fieldMap.mod?.value || "").map((modId, index) => [modId.toLowerCase(), index]));
+        const modItems = Array.from(draftItemMetadata.values())
+            .map((item, index) => ({
+                ...item,
+                is_active: activeOrder.has(item.mod_id.toLowerCase()),
+                sort_order: activeOrder.has(item.mod_id.toLowerCase()) ? activeOrder.get(item.mod_id.toLowerCase()) : activeOrder.size + index,
+            }))
+            .sort((left, right) => left.sort_order - right.sort_order);
+
+        try {
+            const response = await fetch(draftUrl, {
+                method: "POST",
+                keepalive: true,
+                headers: {
+                    "Content-Type": "application/json",
+                    Accept: "application/json",
+                },
+                credentials: "same-origin",
+                body: JSON.stringify({
+                    workshop_ids: normalizeList(fieldMap.workshop?.value || ""),
+                    mod_ids: normalizeList(fieldMap.mod?.value || ""),
+                    map_ids: normalizeList(fieldMap.map?.value || ""),
+                    mod_items: modItems,
+                }),
+            });
+            return response.ok;
+        } catch (_error) {
+            return false;
+        }
+    };
+
+    const scheduleDraftSave = () => {
+        window.clearTimeout(draftSaveTimer);
+        draftSaveTimer = window.setTimeout(saveDraft, 350);
+    };
+
+    const saveDraftNow = () => {
+        window.clearTimeout(draftSaveTimer);
+        return saveDraft();
+    };
+
+    const appendUnique = (fieldName, items, options = {}) => {
+        const textarea = fieldMap[fieldName];
+        if (!textarea) {
+            return false;
+        }
+
+        const current = normalizeList(textarea.value || "");
         const seen = new Set(current.map((item) => item.toLowerCase()));
+        const missing = [];
         items.forEach((item) => {
             const trimmed = item.trim();
             if (!trimmed) {
@@ -2095,15 +2791,61 @@
                 return;
             }
             seen.add(lowered);
-            current.push(trimmed);
+            missing.push(trimmed);
         });
-        updateField(fieldName, current);
+
+        if (!missing.length) {
+            return false;
+        }
+
+        const existing = textarea.value || "";
+        const separator = existing.trim() ? "\n" : "";
+        textarea.value = `${existing.replace(/\s+$/g, "")}${separator}${missing.join("\n")}`;
+        renderField(fieldName);
+        syncModCardsFromFields();
+        syncMapRowsFromFields();
+        if (options.save !== false) {
+            scheduleDraftSave();
+        }
+        return true;
+    };
+
+    const rememberItemsFromAddButton = (button) => {
+        const title = button.getAttribute("data-title") || "";
+        let modNamesById = {};
+        try {
+            modNamesById = JSON.parse(button.getAttribute("data-mod-names") || "{}");
+        } catch (_error) {
+            modNamesById = {};
+        }
+        const workshopItems = splitAttributeList(button.getAttribute("data-workshop-ids"))
+            .concat(splitAttributeList(button.getAttribute("data-workshop-id")));
+        const modItems = splitAttributeList(button.getAttribute("data-mods"));
+        const rootMods = splitAttributeList(button.getAttribute("data-root-mods"));
+        const dependencyMods = splitAttributeList(button.getAttribute("data-dependency-mods"));
+        const rootLookup = new Set(rootMods.map((item) => item.toLowerCase()));
+        modItems.forEach((modId, index) => {
+            const workshopId = workshopItems.length === 1 ? workshopItems[0] : (workshopItems[index] || "");
+            const isRootMod = rootLookup.size ? rootLookup.has(modId.toLowerCase()) : index === modItems.length - 1;
+            rememberDraftItem({
+                modId,
+                modName: modNamesById[modId] || title,
+                workshopId,
+                dependencyModIds: isRootMod ? dependencyMods.filter((item) => item.toLowerCase() !== modId.toLowerCase()) : [],
+            });
+        });
     };
 
     ["workshop", "mod", "map"].forEach((fieldName) => {
-        fieldMap[fieldName]?.addEventListener("input", () => renderField(fieldName));
+        fieldMap[fieldName]?.addEventListener("input", () => {
+            renderField(fieldName);
+            syncModCardsFromFields();
+            syncMapRowsFromFields();
+            scheduleDraftSave();
+        });
         renderField(fieldName);
     });
+    syncMapRowsFromFields();
 
     form.addEventListener("click", (event) => {
         const target = event.target;
@@ -2122,6 +2864,9 @@
                 const [value] = current.splice(index, 1);
                 current.splice(nextIndex, 0, value);
                 updateField(fieldName, current);
+                syncModCardsFromFields();
+                syncMapRowsFromFields();
+                scheduleDraftSave();
             }
             return;
         }
@@ -2134,39 +2879,173 @@
             if (index >= 0 && index < current.length) {
                 current.splice(index, 1);
                 updateField(fieldName, current);
+                syncModCardsFromFields();
+                syncMapRowsFromFields();
+                saveDraftNow();
             }
         }
     });
 
+    detailButtons.forEach((button) => {
+        button.addEventListener("dragstart", (event) => {
+            if (button.dataset.active !== "yes") {
+                event.preventDefault();
+                return;
+            }
+            draggedModId = button.dataset.modId || "";
+            button.classList.add("dragging");
+            event.dataTransfer?.setData("text/plain", draggedModId);
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = "move";
+            }
+        });
+        button.addEventListener("dragover", (event) => {
+            if (!draggedModId || button.dataset.active !== "yes") {
+                return;
+            }
+            event.preventDefault();
+            button.classList.add("drag-over");
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = "move";
+            }
+        });
+        button.addEventListener("dragleave", () => {
+            button.classList.remove("drag-over");
+        });
+        button.addEventListener("drop", (event) => {
+            event.preventDefault();
+            button.classList.remove("drag-over");
+            moveDraggedModBeforeTarget(button, event);
+        });
+        button.addEventListener("dragend", () => {
+            draggedModId = "";
+            detailButtons.forEach((item) => item.classList.remove("dragging", "drag-over"));
+        });
+        button.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            const moveButton = target.closest("[data-mod-move]");
+            if (moveButton instanceof HTMLElement) {
+                const modId = button.dataset.modId || "";
+                const direction = Number.parseInt(moveButton.dataset.modMove || "0", 10);
+                moveModInLoadOrder(modId, direction);
+                event.stopPropagation();
+                return;
+            }
+            if (target.closest("[data-mod-toggle]")) {
+                const modId = button.dataset.modId || "";
+                const workshopId = button.dataset.workshopId || "";
+                const currentMods = normalizeList(fieldMap.mod?.value || "");
+                const isActive = currentMods.some((item) => item.toLowerCase() === modId.toLowerCase());
+                rememberDraftItem({
+                    modId,
+                    modName: button.dataset.modTitle || modId,
+                    workshopId,
+                    dependencyModIds: splitAttributeList(button.dataset.modDependencies || ""),
+                });
+                if (isActive) {
+                    updateField("mod", currentMods.filter((item) => item.toLowerCase() !== modId.toLowerCase()));
+                } else {
+                    appendUnique("workshop", [workshopId]);
+                    appendUnique("mod", [modId]);
+                }
+                syncModCardsFromFields();
+                syncMapRowsFromFields();
+                saveDraftNow();
+                event.stopPropagation();
+                return;
+            }
+            if (target.closest("[data-mod-remove]")) {
+                const modId = button.dataset.modId || "";
+                const workshopId = button.dataset.workshopId || "";
+                updateField("mod", normalizeList(fieldMap.mod?.value || "").filter((item) => item.toLowerCase() !== modId.toLowerCase()));
+                forgetDraftItem(modId);
+                forgetModButton(button);
+                removeWorkshopIfUnused(workshopId);
+                syncModCardsFromFields();
+                syncMapRowsFromFields();
+                saveDraftNow();
+                event.stopPropagation();
+            }
+        });
+    });
+
+    document.querySelector("[data-auto-order-mods]")?.addEventListener("click", () => {
+        autoOrderActiveMods();
+    });
+
+    mapRows.forEach((button) => {
+        button.addEventListener("click", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+            if (target.closest("[data-map-toggle]")) {
+                const mapId = button.dataset.mapId || "";
+                const workshopId = button.dataset.workshopId || "";
+                const currentMaps = normalizeList(fieldMap.map?.value || "");
+                const isActive = currentMaps.some((item) => item.toLowerCase() === mapId.toLowerCase());
+                if (isActive) {
+                    updateField("map", currentMaps.filter((item) => item.toLowerCase() !== mapId.toLowerCase()));
+                } else {
+                    appendUnique("workshop", [workshopId]);
+                    appendUnique("map", [mapId]);
+                }
+                syncMapRowsFromFields();
+                scheduleDraftSave();
+                event.stopPropagation();
+                return;
+            }
+            if (target.closest("[data-map-remove]")) {
+                const mapId = button.dataset.mapId || "";
+                const workshopId = button.dataset.workshopId || "";
+                updateField("map", normalizeList(fieldMap.map?.value || "").filter((item) => item.toLowerCase() !== mapId.toLowerCase()));
+                forgetMapRow(button);
+                removeWorkshopIfUnused(workshopId);
+                syncMapRowsFromFields();
+                saveDraftNow();
+                event.stopPropagation();
+            }
+        });
+    });
+
+    document.querySelectorAll("[data-submit-hidden]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const action = button.getAttribute("data-submit-hidden") || "";
+            form.querySelector(`[data-${action.replace("_", "-")}-hidden]`)?.click();
+        });
+    });
+
     document.querySelectorAll("[data-queue-pack]").forEach((button) => {
-        button.addEventListener("click", () => {
-            const workshopItems = splitAttributeList(button.getAttribute("data-workshop-ids"))
-                .concat(splitAttributeList(button.getAttribute("data-workshop-id")));
-            appendUnique("workshop", workshopItems);
-            appendUnique("mod", splitAttributeList(button.getAttribute("data-mods")));
-            appendUnique("map", splitAttributeList(button.getAttribute("data-maps")));
+        button.addEventListener("click", async () => {
+            const originalLabel = button.textContent;
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            button.textContent = "Adding...";
+            try {
+                rememberItemsFromAddButton(button);
+                const workshopItems = splitAttributeList(button.getAttribute("data-workshop-ids"))
+                    .concat(splitAttributeList(button.getAttribute("data-workshop-id")));
+                appendUnique("workshop", workshopItems, { save: false });
+                appendUnique("mod", splitAttributeList(button.getAttribute("data-mods")), { save: false });
+                appendUnique("map", splitAttributeList(button.getAttribute("data-maps")), { save: false });
+                const saved = await saveDraftNow();
+                if (saved) {
+                    liveEditorRefreshPending = true;
+                    showAddConfirmation("Added to editor. Open Live Editor to refresh the list.");
+                } else {
+                    showAddConfirmation("Could not save the editor draft. Try again.");
+                }
+            } finally {
+                button.disabled = false;
+                button.removeAttribute("aria-busy");
+                button.textContent = originalLabel;
+            }
         });
     });
 
-    document.querySelectorAll("[data-queue-mods]").forEach((button) => {
-        button.addEventListener("click", () => {
-            appendUnique("mod", splitAttributeList(button.getAttribute("data-mods")));
-        });
-    });
-
-    document.querySelectorAll("[data-queue-maps]").forEach((button) => {
-        button.addEventListener("click", () => {
-            appendUnique("map", splitAttributeList(button.getAttribute("data-maps")));
-        });
-    });
-
-    document.querySelectorAll("[data-load-preset]").forEach((button) => {
-        button.addEventListener("click", () => {
-            updateField("workshop", splitAttributeList(button.getAttribute("data-workshop")));
-            updateField("mod", splitAttributeList(button.getAttribute("data-mods")));
-            updateField("map", splitAttributeList(button.getAttribute("data-maps")));
-        });
-    });
 })();
 </script>
 {% endif %}

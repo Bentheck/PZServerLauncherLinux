@@ -22,7 +22,7 @@ from app.dependencies import (
     role_allows,
     validate_csrf,
 )
-from app.models import AuditEntry, HostSettings, JobStatus, OperationJob, ServerProfile, SettingsDraft, User, UserRole, WorkshopPreset
+from app.models import AuditEntry, HostSettings, JobStatus, ModsMapsDraft, ModsMapsDraftItem, OperationJob, ServerProfile, SettingsDraft, User, UserRole, WorkshopPreset
 from app.security import InMemoryRateLimiter, ensure_password_policy, hash_password, slugify, verify_password
 from app.services.audit import record_audit
 from app.services.config_files import FlatIniDocument
@@ -260,24 +260,71 @@ def sandbox_redirect(profile_id: str, *, preset_id: str = "", search: str = "", 
     return redirect(sandbox_url(profile_id, preset_id=preset_id, search=search, category=category))
 
 
-def mods_maps_ui_state_from_request(request: Request) -> dict[str, str]:
+def mods_maps_ui_state_from_request(request: Request) -> dict[str, object]:
     return {
         "search": request.query_params.get("q", "").strip(),
+        "search_kind": normalize_mods_maps_search_kind(request.query_params.get("kind", "")),
+        "tags": normalize_mods_maps_tags([
+            *request.query_params.getlist("tags"),
+            request.query_params.get("build", ""),
+        ]),
         "preview": request.query_params.get("preview", "").strip(),
     }
 
 
-def mods_maps_ui_state_from_form(form) -> dict[str, str]:
+def mods_maps_ui_state_from_form(form) -> dict[str, object]:
     return {
         "search": str(form.get("browser_query", "") or "").strip(),
+        "search_kind": normalize_mods_maps_search_kind(str(form.get("browser_search_kind", "") or "")),
+        "tags": normalize_mods_maps_tags(str(form.get("browser_tags", "") or "").split(",")),
         "preview": str(form.get("preview_workshop_id", "") or "").strip(),
     }
 
 
-def mods_maps_url(profile_id: str, *, search: str = "", preview: str = "") -> str:
+def normalize_mods_maps_search_kind(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"mod", "map", "collection"}:
+        return normalized
+    return "all"
+
+
+def normalize_mods_maps_tags(values: list[str]) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    aliases = {
+        "40": "Build 40",
+        "b40": "Build 40",
+        "build40": "Build 40",
+        "41": "Build 41",
+        "b41": "Build 41",
+        "build41": "Build 41",
+        "42": "Build 42",
+        "b42": "Build 42",
+        "build42": "Build 42",
+    }
+    for value in values:
+        for raw_item in str(value or "").split(","):
+            item = raw_item.strip()
+            if not item or item.lower() == "all":
+                continue
+            item = aliases.get(item.lower().replace(" ", ""), item)
+            lowered = item.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            tags.append(item)
+    return tags
+
+
+def mods_maps_url(profile_id: str, *, search: str = "", preview: str = "", search_kind: str = "all", tags: list[str] | None = None) -> str:
     query: dict[str, str] = {}
     if search:
         query["q"] = search
+    if search_kind and search_kind != "all":
+        query["kind"] = search_kind
+    normalized_tags = normalize_mods_maps_tags(tags or [])
+    if normalized_tags:
+        query["tags"] = ",".join(normalized_tags)
     if preview:
         query["preview"] = preview
 
@@ -285,8 +332,8 @@ def mods_maps_url(profile_id: str, *, search: str = "", preview: str = "") -> st
     return f"{base}?{urlencode(query)}" if query else base
 
 
-def mods_maps_redirect(profile_id: str, *, search: str = "", preview: str = "") -> RedirectResponse:
-    return redirect(mods_maps_url(profile_id, search=search, preview=preview))
+def mods_maps_redirect(profile_id: str, *, search: str = "", preview: str = "", search_kind: str = "all", tags: list[str] | None = None) -> RedirectResponse:
+    return redirect(mods_maps_url(profile_id, search=search, preview=preview, search_kind=search_kind, tags=tags))
 
 
 def normalize_console_slot_number(value: int | str | None) -> int:
@@ -419,6 +466,257 @@ def delete_sandbox_draft(db: Session, *, profile_id: str) -> bool:
     if row is None:
         return False
 
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def load_mods_maps_draft_values(db: Session, *, profile_id: str) -> dict[str, list[str]] | None:
+    row = db.scalar(select(ModsMapsDraft).where(ModsMapsDraft.profile_id == profile_id))
+    if row is None:
+        return None
+
+    mod_item_rows = db.scalars(
+        select(ModsMapsDraftItem)
+        .where(ModsMapsDraftItem.profile_id == profile_id)
+        .order_by(ModsMapsDraftItem.sort_order.asc(), ModsMapsDraftItem.id.asc())
+    ).all()
+    mod_items = [
+        {
+            "id": item.id,
+            "mod_name": item.mod_name,
+            "mod_id": item.mod_id,
+            "workshop_id": item.workshop_id,
+            "is_active": item.is_active,
+            "sort_order": item.sort_order,
+            "dependency_mod_ids": parse_textarea_list(item.dependency_mod_ids),
+        }
+        for item in mod_item_rows
+    ]
+
+    try:
+        item_metadata = json.loads(row.item_metadata_json or "[]")
+    except json.JSONDecodeError:
+        item_metadata = []
+
+    if not isinstance(item_metadata, list):
+        item_metadata = []
+
+    if not mod_items:
+        workshop_ids = parse_textarea_list(row.workshop_ids)
+        mod_ids = parse_textarea_list(row.mod_ids)
+        metadata_by_mod = {}
+        for raw_item in item_metadata:
+            if not isinstance(raw_item, dict):
+                continue
+            mod_id = str(raw_item.get("mod_id", "") or "").strip()
+            if mod_id:
+                metadata_by_mod[mod_id.lower()] = raw_item
+        mod_items = [
+            {
+                "id": index + 1,
+                "mod_name": str(metadata_by_mod.get(mod_id.lower(), {}).get("mod_name", metadata_by_mod.get(mod_id.lower(), {}).get("title", "")) or mod_id),
+                "mod_id": mod_id,
+                "workshop_id": str(metadata_by_mod.get(mod_id.lower(), {}).get("workshop_id", "") or (workshop_ids[index] if index < len(workshop_ids) else "")),
+                "is_active": True,
+                "sort_order": index,
+                "dependency_mod_ids": parse_textarea_list(str(metadata_by_mod.get(mod_id.lower(), {}).get("dependency_mod_ids", ""))),
+            }
+            for index, mod_id in enumerate(mod_ids)
+        ]
+
+    active_mod_ids = [
+        str(item.get("mod_id", "") or "").strip()
+        for item in mod_items
+        if bool(item.get("is_active", True)) and str(item.get("mod_id", "") or "").strip()
+    ]
+    if not mod_items:
+        active_mod_ids = parse_textarea_list(row.mod_ids)
+
+    return {
+        "workshop_ids": parse_textarea_list(row.workshop_ids),
+        "mod_ids": active_mod_ids,
+        "map_ids": parse_textarea_list(row.map_ids),
+        "mod_items": mod_items,
+    }
+
+
+def apply_mods_maps_draft(settings: dict[str, object], draft_values: dict[str, object] | None) -> tuple[dict[str, object], bool]:
+    if draft_values is None:
+        return settings, False
+
+    editor_settings = dict(settings)
+    for key in ("workshop_ids", "mod_ids", "map_ids"):
+        items = list(draft_values.get(key, []))
+        editor_settings[key] = items
+        editor_settings[f"{key}_text"] = "\n".join(items)
+    editor_settings["mod_items"] = list(draft_values.get("mod_items", []))
+    return editor_settings, True
+
+
+def build_mods_maps_editor_catalog(profile: ServerProfile, config_service, mods_maps_settings: dict[str, object]) -> list[dict[str, object]]:
+    catalog = config_service.list_installed_workshop_catalog(profile)
+    catalog_by_mod: dict[str, object] = {}
+    for item in catalog:
+        for mod_id in item.mod_ids:
+            catalog_by_mod.setdefault(mod_id.lower(), item)
+
+    draft_items_by_mod: dict[str, dict[str, object]] = {}
+    for raw_item in list(mods_maps_settings.get("mod_items", [])):
+        if not isinstance(raw_item, dict):
+            continue
+        mod_id = str(raw_item.get("mod_id", "") or "").strip()
+        if mod_id:
+            draft_items_by_mod.setdefault(mod_id.lower(), raw_item)
+
+    active_lookup = {
+        str(item.get("mod_id", "") or "").lower()
+        for item in draft_items_by_mod.values()
+        if bool(item.get("is_active", True))
+    }
+    if not draft_items_by_mod:
+        active_lookup = {item.lower() for item in list(mods_maps_settings["mod_ids"])}
+    ordered_mod_ids = [
+        str(item.get("mod_id", "") or "").strip()
+        for item in sorted(draft_items_by_mod.values(), key=lambda item: int(item.get("sort_order", 0) or 0))
+        if str(item.get("mod_id", "") or "").strip()
+    ]
+    if not ordered_mod_ids:
+        ordered_mod_ids = list(mods_maps_settings["mod_ids"])
+    ordered_lookup = {item.lower() for item in ordered_mod_ids}
+    queued_workshop_ids = list(mods_maps_settings["workshop_ids"])
+    fallback_workshop_by_mod = {
+        mod_id.lower(): queued_workshop_ids[index]
+        for index, mod_id in enumerate(ordered_mod_ids)
+        if index < len(queued_workshop_ids)
+    }
+    for draft_item in sorted(draft_items_by_mod.values(), key=lambda item: int(item.get("sort_order", 0) or 0)):
+        mod_id = str(draft_item.get("mod_id", "") or "").strip()
+        if mod_id and mod_id.lower() not in ordered_lookup:
+            ordered_lookup.add(mod_id.lower())
+            ordered_mod_ids.append(mod_id)
+    for item in catalog:
+        for mod_id in item.mod_ids:
+            if mod_id.lower() not in ordered_lookup:
+                ordered_lookup.add(mod_id.lower())
+                ordered_mod_ids.append(mod_id)
+
+    rows: list[dict[str, object]] = []
+    for index, mod_id in enumerate(ordered_mod_ids):
+        catalog_item = catalog_by_mod.get(mod_id.lower())
+        draft_item = draft_items_by_mod.get(mod_id.lower(), {})
+        rows.append(
+            {
+                "row_id": draft_item.get("id", index + 1),
+                "mod_id": mod_id,
+                "title": catalog_item.title if catalog_item is not None else str(draft_item.get("mod_name", draft_item.get("title", "")) or mod_id),
+                "workshop_id": (
+                    catalog_item.workshop_id
+                    if catalog_item is not None
+                    else str(draft_item.get("workshop_id", "") or fallback_workshop_by_mod.get(mod_id.lower(), "") or "")
+                ),
+                "dependencies": (
+                    list(draft_item.get("dependency_mod_ids", []))
+                    or (list(catalog_item.mod_dependencies.get(mod_id, [])) if catalog_item is not None else [])
+                ),
+                "map_ids": list(catalog_item.map_ids) if catalog_item is not None else [],
+                "is_active": mod_id.lower() in active_lookup,
+                "is_installed": catalog_item is not None,
+            }
+        )
+    return rows
+
+
+def repair_mods_maps_draft_item_names(db: Session, profile: ServerProfile, config_service, workshop_browser_service) -> bool:
+    draft_items = db.scalars(
+        select(ModsMapsDraftItem)
+        .where(ModsMapsDraftItem.profile_id == profile.id)
+        .order_by(ModsMapsDraftItem.sort_order.asc(), ModsMapsDraftItem.id.asc())
+    ).all()
+    if not draft_items:
+        return False
+
+    catalog_name_by_mod: dict[str, str] = {}
+    for item in config_service.list_installed_workshop_catalog(profile):
+        for mod_id in item.mod_ids:
+            catalog_name_by_mod.setdefault(mod_id.lower(), item.title)
+
+    by_workshop: dict[str, list[ModsMapsDraftItem]] = {}
+    for item in draft_items:
+        if item.workshop_id:
+            by_workshop.setdefault(item.workshop_id, []).append(item)
+
+    changed = False
+    for item in draft_items:
+        catalog_name = catalog_name_by_mod.get(item.mod_id.lower())
+        if catalog_name and item.mod_name != catalog_name:
+            item.mod_name = catalog_name
+            changed = True
+
+    for workshop_id, items in by_workshop.items():
+        try:
+            preview = workshop_browser_service.get_preview(
+                profile,
+                current_workshop_ids=[],
+                current_mod_ids=[],
+                current_map_ids=[],
+                workshop_id=workshop_id,
+                api_key=None,
+            )
+        except Exception:
+            preview = None
+        if preview is None:
+            continue
+        for item in items:
+            repaired_name = preview.mod_names_by_id.get(item.mod_id)
+            if repaired_name and repaired_name != item.mod_name:
+                item.mod_name = repaired_name
+                changed = True
+
+    if changed:
+        db.commit()
+    return changed
+
+
+def build_mods_maps_map_catalog(profile: ServerProfile, config_service, mods_maps_settings: dict[str, object]) -> list[dict[str, object]]:
+    catalog = config_service.list_installed_workshop_catalog(profile)
+    catalog_by_map: dict[str, object] = {}
+    for item in catalog:
+        for map_id in item.map_ids:
+            catalog_by_map.setdefault(map_id.lower(), item)
+
+    active_lookup = {item.lower() for item in list(mods_maps_settings["map_ids"])}
+    ordered_map_ids = list(mods_maps_settings["map_ids"])
+    existing = {item.lower() for item in ordered_map_ids}
+    for item in catalog:
+        for map_id in item.map_ids:
+            if map_id.lower() not in existing:
+                existing.add(map_id.lower())
+                ordered_map_ids.append(map_id)
+
+    rows: list[dict[str, object]] = []
+    for index, map_id in enumerate(ordered_map_ids):
+        catalog_item = catalog_by_map.get(map_id.lower())
+        rows.append(
+            {
+                "row_id": index + 1,
+                "map_id": map_id,
+                "title": map_id,
+                "workshop_id": catalog_item.workshop_id if catalog_item is not None else "",
+                "is_active": map_id.lower() in active_lookup,
+                "is_installed": catalog_item is not None,
+            }
+        )
+    return rows
+
+
+def delete_mods_maps_draft(db: Session, *, profile_id: str) -> bool:
+    row = db.scalar(select(ModsMapsDraft).where(ModsMapsDraft.profile_id == profile_id))
+    if row is None:
+        return False
+
+    for item in db.scalars(select(ModsMapsDraftItem).where(ModsMapsDraftItem.profile_id == profile_id)).all():
+        db.delete(item)
     db.delete(row)
     db.commit()
     return True
@@ -1265,7 +1563,11 @@ def _profile_workspace(
     runtime_diagnostic = build_runtime_diagnostic(runtime_snapshot, launch_plan_live, profile_job_entries)
     general_settings = config_service.load_general_settings(profile)
     network_settings = config_service.load_network_settings(profile)
-    mods_maps_settings = config_service.load_mods_maps(profile)
+    live_mods_maps_settings = config_service.load_mods_maps(profile)
+    mods_maps_settings, mods_maps_has_draft = apply_mods_maps_draft(
+        live_mods_maps_settings,
+        load_mods_maps_draft_values(db, profile_id=profile.id),
+    )
     named_presets = config_service.list_named_presets(db, profile.id)
     advanced_files = config_service.read_advanced_files(profile)
     sandbox_context: dict[str, Any] = {}
@@ -1308,12 +1610,25 @@ def _profile_workspace(
     if page_id == "mods-maps":
         mods_maps_state = mods_maps_ui_state_from_request(request)
         host_settings = get_host_settings(db, request)
+        if mods_maps_has_draft:
+            repair_mods_maps_draft_item_names(
+                db,
+                profile,
+                config_service,
+                request.app.state.workshop_browser_service,
+            )
+            mods_maps_settings, mods_maps_has_draft = apply_mods_maps_draft(
+                live_mods_maps_settings,
+                load_mods_maps_draft_values(db, profile_id=profile.id),
+            )
         workshop_browser_result = request.app.state.workshop_browser_service.search(
             profile,
             current_workshop_ids=list(mods_maps_settings["workshop_ids"]),
             current_mod_ids=list(mods_maps_settings["mod_ids"]),
             current_map_ids=list(mods_maps_settings["map_ids"]),
             query=mods_maps_state["search"],
+            search_kind=mods_maps_state["search_kind"],
+            required_tags=list(mods_maps_state["tags"]),
             api_key=host_settings.steam_web_api_key,
         )
         workshop_browser_preview = None
@@ -1334,13 +1649,27 @@ def _profile_workspace(
         )
         mods_maps_context = {
             "mods_maps_query": mods_maps_state["search"],
+            "mods_maps_search_kind": mods_maps_state["search_kind"],
+            "mods_maps_selected_tags": list(mods_maps_state["tags"]),
             "mods_maps_preview_id": mods_maps_state["preview"],
+            "mods_maps_has_draft": mods_maps_has_draft,
+            "mods_maps_editor_catalog": build_mods_maps_editor_catalog(profile, config_service, mods_maps_settings),
+            "mods_maps_map_catalog": build_mods_maps_map_catalog(profile, config_service, mods_maps_settings),
             "workshop_browser_result": workshop_browser_result,
             "workshop_browser_preview": workshop_browser_preview,
             "mods_maps_validation": mods_maps_validation,
             "workshop_browser_has_api_key": bool((host_settings.steam_web_api_key or "").strip()),
             "workshop_browser_can_configure": role_allows(user, UserRole.admin),
         }
+        available_tags = {
+            tag
+            for item in workshop_browser_result.items
+            for tag in item.tags
+            if tag.strip()
+        }
+        available_tags.update(mods_maps_context["mods_maps_selected_tags"])
+        available_tags.update(["Build 40", "Build 41", "Build 42"])
+        mods_maps_context["workshop_browser_available_tags"] = sorted(available_tags, key=str.lower)
 
     return render(
         request,
@@ -1513,11 +1842,13 @@ def profile_install_update_delete_submit(
 
     related_jobs = db.scalars(select(OperationJob).where(OperationJob.profile_id == profile.id)).all()
     related_drafts = db.scalars(select(SettingsDraft).where(SettingsDraft.profile_id == profile.id)).all()
+    related_mods_maps_drafts = db.scalars(select(ModsMapsDraft).where(ModsMapsDraft.profile_id == profile.id)).all()
+    related_mods_maps_draft_items = db.scalars(select(ModsMapsDraftItem).where(ModsMapsDraftItem.profile_id == profile.id)).all()
     related_presets = db.scalars(select(WorkshopPreset).where(WorkshopPreset.profile_id == profile.id)).all()
     related_audits = db.scalars(select(AuditEntry).where(AuditEntry.subject_id == profile.id)).all()
 
     db.delete(profile)
-    for row in [*related_jobs, *related_drafts, *related_presets, *related_audits]:
+    for row in [*related_jobs, *related_drafts, *related_mods_maps_drafts, *related_mods_maps_draft_items, *related_presets, *related_audits]:
         db.delete(row)
     db.commit()
 
@@ -1900,6 +2231,8 @@ def profile_mods_maps_submit(
     preset_id: str = Form(""),
     steam_web_api_key: str = Form(""),
     browser_query: str = Form(""),
+    browser_search_kind: str = Form("all"),
+    browser_tags: str = Form(""),
     preview_workshop_id: str = Form(""),
     csrf_token: str = Form(...),
 ) -> RedirectResponse:
@@ -1916,6 +2249,7 @@ def profile_mods_maps_submit(
     map_ids = parse_textarea_list(map_ids_text)
     ui_state = {
         "search": browser_query.strip(),
+        "search_kind": normalize_mods_maps_search_kind(browser_search_kind),
         "preview": preview_workshop_id.strip(),
     }
 
@@ -1962,11 +2296,18 @@ def profile_mods_maps_submit(
         flash(request, "success", "Cleared the Steam Workshop Web API key.")
         return mods_maps_redirect(profile.id, **ui_state)
 
+    table_draft_values = load_mods_maps_draft_values(db, profile_id=profile.id)
+    if table_draft_values is not None:
+        workshop_ids = list(table_draft_values.get("workshop_ids", workshop_ids))
+        mod_ids = list(table_draft_values.get("mod_ids", mod_ids))
+        map_ids = list(table_draft_values.get("map_ids", map_ids))
+
     resolved_workshop_ids = config_service.resolve_workshop_ids_from_content(profile, workshop_ids, mod_ids, map_ids)
     auto_resolved_count = len([item for item in resolved_workshop_ids if item.lower() not in {value.lower() for value in workshop_ids}])
 
     if action == "save_live":
         config_service.save_mods_maps(profile, resolved_workshop_ids, mod_ids, map_ids)
+        delete_mods_maps_draft(db, profile_id=profile.id)
         record_audit(
             db,
             event_type="profile.mods-maps.saved",
@@ -2024,6 +2365,7 @@ def profile_mods_maps_submit(
             [item for item in resolved_preset_workshop_ids if item.lower() not in {value.lower() for value in preset.workshop_ids}]
         )
         config_service.save_mods_maps(profile, resolved_preset_workshop_ids, preset.mod_ids, preset.map_ids)
+        delete_mods_maps_draft(db, profile_id=profile.id)
         record_audit(
             db,
             event_type="profile.mods-maps.preset-applied",
@@ -2056,6 +2398,7 @@ def profile_mods_maps_submit(
     elif action == "scan_live":
         scan_result = request.app.state.config_service.scan_installed_workshop(profile)
         config_service.save_mods_maps(profile, scan_result.workshop_ids, scan_result.mod_ids, scan_result.map_ids)
+        delete_mods_maps_draft(db, profile_id=profile.id)
         summary = f"Imported {len(scan_result.workshop_ids)} workshop IDs, {len(scan_result.mod_ids)} mods, and {len(scan_result.map_ids)} maps from installed workshop content."
         if scan_result.diagnostics:
             summary = f"{summary} {' '.join(scan_result.diagnostics)}"

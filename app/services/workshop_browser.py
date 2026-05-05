@@ -61,11 +61,17 @@ class WorkshopBrowserPreview:
     mod_ids_to_add: list[str]
     map_ids_to_add: list[str]
     collection_children: list[WorkshopBrowserPreviewChild]
+    dependency_children: list[WorkshopBrowserPreviewChild]
+    dependency_workshop_ids_to_add: list[str]
+    dependency_mod_ids_to_add: list[str]
+    dependency_map_ids_to_add: list[str]
+    mod_names_by_id: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
 class WorkshopBrowserSearchResult:
     query: str
+    search_kind: str
     has_api_key: bool
     items: list[WorkshopBrowserItem]
     diagnostics: list[str]
@@ -84,38 +90,53 @@ class WorkshopBrowserService:
         current_map_ids: list[str],
         query: str,
         api_key: str | None,
+        search_kind: str = "all",
+        required_tags: list[str] | None = None,
         take: int = 24,
     ) -> WorkshopBrowserSearchResult:
         normalized_query = query.strip()
+        normalized_search_kind = self._normalize_search_kind(search_kind)
+        normalized_required_tags = self._normalize_required_tags(required_tags or [])
         has_api_key = bool((api_key or "").strip())
         diagnostics: list[str] = []
         local_items = self._build_local_items(profile, current_workshop_ids, current_mod_ids, current_map_ids)
         results: dict[str, WorkshopBrowserItem] = {}
 
-        filtered_local = self._search_local(local_items, normalized_query, take)
+        filtered_local = []
+        if normalized_search_kind in {"all", "mod", "map"}:
+            filtered_local = self._search_local(local_items, normalized_query, take)
+            if normalized_search_kind == "map":
+                filtered_local = [item for item in filtered_local if item.map_ids or any(tag.lower() == "map" for tag in item.tags)]
         for item in filtered_local:
             results[item.workshop_id] = item
 
-        if normalized_query and has_api_key:
+        if (normalized_query or normalized_required_tags) and has_api_key:
             try:
-                for remote_item in self._search_remote_items(api_key or "", normalized_query, take):
-                    merged = self._merge_browser_items(
-                        results.get(remote_item.workshop_id),
-                        self._build_remote_item(remote_item, current_workshop_ids, current_mod_ids, current_map_ids),
-                    )
-                    results[merged.workshop_id] = merged
+                if normalized_search_kind in {"all", "mod", "map"}:
+                    for remote_item in self._search_remote_items(api_key or "", normalized_query, take, normalized_required_tags):
+                        built_item = self._build_remote_item(remote_item, current_workshop_ids, current_mod_ids, current_map_ids)
+                        if normalized_search_kind == "map" and built_item is not None and not built_item.map_ids and not any(tag.lower() == "map" for tag in built_item.tags):
+                            continue
+                        merged = self._merge_browser_items(
+                            results.get(remote_item.workshop_id),
+                            built_item,
+                        )
+                        results[merged.workshop_id] = merged
 
-                for remote_item in self._search_remote_collections(api_key or "", normalized_query, take):
-                    merged = self._merge_browser_items(
-                        results.get(remote_item.workshop_id),
-                        self._build_remote_item(remote_item, current_workshop_ids, current_mod_ids, current_map_ids),
-                    )
-                    results[merged.workshop_id] = merged
+                if normalized_search_kind in {"all", "collection"}:
+                    for remote_item in self._search_remote_collections(api_key or "", normalized_query, take, normalized_required_tags):
+                        merged = self._merge_browser_items(
+                            results.get(remote_item.workshop_id),
+                            self._build_remote_item(remote_item, current_workshop_ids, current_mod_ids, current_map_ids),
+                        )
+                        results[merged.workshop_id] = merged
 
-                diagnostics.append("Steam Workshop search is enabled with the configured Web API key.")
+                diagnostics.append(f"Steam Workshop {self._search_kind_label(normalized_search_kind).lower()} search is enabled with the configured Web API key.")
+                if normalized_required_tags:
+                    diagnostics.append(f"Steam search is filtering for tag(s): {', '.join(normalized_required_tags)}.")
             except httpx.HTTPError as exc:
                 diagnostics.append(f"Steam search failed: {exc}. Local cache results are still available.")
-        elif normalized_query:
+        elif normalized_query or normalized_required_tags:
             diagnostics.append("Steam search is unavailable until a Steam Web API key is configured. Local cache search and manual Workshop ID / URL lookup still work.")
 
         manual_lookup_id = self._normalize_workshop_lookup(normalized_query)
@@ -153,6 +174,7 @@ class WorkshopBrowserService:
 
         return WorkshopBrowserSearchResult(
             query=normalized_query,
+            search_kind=normalized_search_kind,
             has_api_key=has_api_key,
             items=items,
             diagnostics=diagnostics,
@@ -271,6 +293,15 @@ class WorkshopBrowserService:
                     )
                     for item in child_items
                 ],
+                dependency_children=[],
+                dependency_workshop_ids_to_add=[],
+                dependency_mod_ids_to_add=[],
+                dependency_map_ids_to_add=[],
+                mod_names_by_id={
+                    mod_id: child.title
+                    for child in child_items
+                    for mod_id in child.mod_ids
+                },
             )
 
         try:
@@ -284,6 +315,15 @@ class WorkshopBrowserService:
         if preview_item is None:
             return None
 
+        dependency_seed_ids = preview_item.child_workshop_ids or self._get_required_workshop_ids(preview_item.workshop_id)
+        dependency_items = self._resolve_dependency_items(
+            dependency_seed_ids,
+            local_lookup,
+            current_workshop_ids,
+            current_mod_ids,
+            current_map_ids,
+        )
+
         workshop_ids_to_add = []
         if preview_item.workshop_id.lower() not in current_workshop_lookup:
             workshop_ids_to_add.append(preview_item.workshop_id)
@@ -294,7 +334,112 @@ class WorkshopBrowserService:
             mod_ids_to_add=[mod_id for mod_id in preview_item.mod_ids if mod_id.lower() not in current_mod_lookup],
             map_ids_to_add=[map_id for map_id in preview_item.map_ids if map_id.lower() not in current_map_lookup],
             collection_children=[],
+            dependency_children=[
+                WorkshopBrowserPreviewChild(
+                    workshop_id=item.workshop_id,
+                    title=item.title,
+                    is_installed_locally=item.is_installed_locally,
+                    is_queued=item.workshop_id.lower() in current_workshop_lookup,
+                )
+                for item in dependency_items
+            ],
+            dependency_workshop_ids_to_add=[
+                item.workshop_id
+                for item in dependency_items
+                if item.workshop_id.lower() not in current_workshop_lookup
+            ],
+            dependency_mod_ids_to_add=[
+                mod_id
+                for mod_id in self._unique_list(
+                    [
+                        *(mod_id for item in dependency_items for mod_id in item.mod_ids),
+                        *preview_item.mod_ids,
+                    ]
+                )
+                if mod_id.lower() not in current_mod_lookup
+            ],
+            dependency_map_ids_to_add=[
+                map_id
+                for map_id in self._unique_list(
+                    [
+                        *(map_id for item in dependency_items for map_id in item.map_ids),
+                        *preview_item.map_ids,
+                    ]
+                )
+                if map_id.lower() not in current_map_lookup
+            ],
+            mod_names_by_id={
+                mod_id: item.title
+                for item in [*dependency_items, preview_item]
+                for mod_id in item.mod_ids
+            },
         )
+
+    def _resolve_dependency_items(
+        self,
+        seed_workshop_ids: list[str],
+        local_lookup: dict[str, WorkshopBrowserItem],
+        current_workshop_ids: list[str],
+        current_mod_ids: list[str],
+        current_map_ids: list[str],
+    ) -> list[WorkshopBrowserItem]:
+        seen: set[str] = set()
+        pending = list(seed_workshop_ids)
+        dependencies: list[WorkshopBrowserItem] = []
+        depth = 0
+
+        while pending and depth < 8:
+            depth += 1
+            batch = self._unique_list(
+                workshop_id
+                for workshop_id in pending
+                if workshop_id.strip() and workshop_id.strip().lower() not in seen
+            )
+            pending = []
+            if not batch:
+                continue
+
+            for workshop_id in batch:
+                seen.add(workshop_id.lower())
+
+            try:
+                detail_lookup = {
+                    detail.workshop_id.lower(): detail
+                    for detail in self._get_details(batch)
+                }
+            except httpx.HTTPError:
+                detail_lookup = {}
+
+            for workshop_id in batch:
+                local_item = local_lookup.get(workshop_id.lower())
+                remote_item = detail_lookup.get(workshop_id.lower())
+                dependency = self._merge_browser_items(
+                    local_item,
+                    self._build_remote_item(remote_item, current_workshop_ids, current_mod_ids, current_map_ids) if remote_item is not None else None,
+                )
+                if dependency is None:
+                    dependency = WorkshopBrowserItem(
+                        workshop_id=workshop_id,
+                        title=f"Workshop item {workshop_id}",
+                        description="",
+                        preview_url=None,
+                        source="steam-details",
+                        source_label="Steam details",
+                        kind="item",
+                        kind_label="Workshop item",
+                        is_installed_locally=False,
+                        is_queued=workshop_id.lower() in {value.lower() for value in current_workshop_ids},
+                        mod_ids=[],
+                        map_ids=[],
+                        child_workshop_ids=[],
+                        collection_item_count=0,
+                        tags=[],
+                    )
+                dependencies.append(dependency)
+                child_ids = dependency.child_workshop_ids or self._get_required_workshop_ids(dependency.workshop_id)
+                pending.extend(child_ids)
+
+        return dependencies
 
     def _build_local_items(
         self,
@@ -346,7 +491,7 @@ class WorkshopBrowserService:
                 results.append(item)
         return results[: max(1, min(take, 50))]
 
-    def _search_remote_items(self, api_key: str, query: str, take: int) -> list[SteamWorkshopRemoteItem]:
+    def _search_remote_items(self, api_key: str, query: str, take: int, required_tags: list[str] | None = None) -> list[SteamWorkshopRemoteItem]:
         payload = {
             "key": api_key,
             "appid": str(PROJECT_ZOMBOID_APP_ID),
@@ -360,9 +505,10 @@ class WorkshopBrowserService:
             "return_tags": "true",
             "strip_description_bbcode": "true",
         }
+        self._apply_required_tags(payload, required_tags or [])
         return self._query_remote_search(STEAM_QUERY_FILES_ENDPOINT, payload, explicit_kind="item")
 
-    def _search_remote_collections(self, api_key: str, query: str, take: int) -> list[SteamWorkshopRemoteItem]:
+    def _search_remote_collections(self, api_key: str, query: str, take: int, required_tags: list[str] | None = None) -> list[SteamWorkshopRemoteItem]:
         payload = {
             "key": api_key,
             "appid": str(PROJECT_ZOMBOID_APP_ID),
@@ -378,10 +524,11 @@ class WorkshopBrowserService:
             "return_children": "true",
             "strip_description_bbcode": "true",
         }
+        self._apply_required_tags(payload, required_tags or [])
         return self._query_remote_search(STEAM_QUERY_FILES_ENDPOINT, payload, explicit_kind="collection")
 
     def _query_remote_search(self, url: str, payload: dict[str, str], *, explicit_kind: str) -> list[SteamWorkshopRemoteItem]:
-        with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/0.1"}) as client:
+        with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/1.0"}) as client:
             response = client.get(url, params=payload)
             if response.status_code >= 400:
                 response = client.post(url, data=payload)
@@ -408,11 +555,14 @@ class WorkshopBrowserService:
         if not normalized_ids:
             return []
 
-        payload: dict[str, str] = {"itemcount": str(len(normalized_ids))}
+        payload: dict[str, str] = {
+            "itemcount": str(len(normalized_ids)),
+            "return_children": "true",
+        }
         for index, workshop_id in enumerate(normalized_ids):
             payload[f"publishedfileids[{index}]"] = workshop_id
 
-        with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/0.1"}) as client:
+        with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/1.0"}) as client:
             response = client.post(STEAM_DETAILS_ENDPOINT, data=payload)
             response.raise_for_status()
             body = response.json()
@@ -437,7 +587,7 @@ class WorkshopBrowserService:
             "collectioncount": "1",
             "publishedfileids[0]": normalized_id,
         }
-        with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/0.1"}) as client:
+        with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/1.0"}) as client:
             response = client.post(STEAM_COLLECTION_DETAILS_ENDPOINT, data=payload)
             response.raise_for_status()
             body = response.json()
@@ -476,6 +626,33 @@ class WorkshopBrowserService:
             tags=[],
             kind="collection",
             child_workshop_ids=child_ids,
+        )
+
+    def _get_required_workshop_ids(self, workshop_id: str) -> list[str]:
+        normalized_id = workshop_id.strip()
+        if normalized_id == "":
+            return []
+
+        url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={normalized_id}"
+        try:
+            with httpx.Client(timeout=10.0, headers={"User-Agent": "PZServerLauncherLinux/1.0"}) as client:
+                response = client.get(url)
+                response.raise_for_status()
+        except httpx.HTTPError:
+            return []
+
+        match = re.search(
+            r'<div[^>]+id="RequiredItems"[^>]*>(?P<body>.*?)</div>\s*</div>',
+            response.text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return []
+
+        return self._unique_list(
+            required_id
+            for required_id in re.findall(r'filedetails/\?id=(\d+)', match.group("body"), re.IGNORECASE)
+            if required_id != normalized_id
         )
 
     def _build_remote_item(
@@ -617,6 +794,40 @@ class WorkshopBrowserService:
             return normalized_query
 
         return None
+
+    @staticmethod
+    def _normalize_search_kind(search_kind: str | None) -> str:
+        normalized = (search_kind or "").strip().lower()
+        if normalized in {"mod", "mods", "item", "items", "workshop", "workshop-item", "workshop-items"}:
+            return "mod"
+        if normalized in {"map", "maps"}:
+            return "map"
+        if normalized in {"collection", "collections"}:
+            return "collection"
+        return "all"
+
+    @staticmethod
+    def _normalize_required_tags(tags: Iterable[str]) -> list[str]:
+        return WorkshopBrowserService._unique_list(
+            str(tag).strip()
+            for tag in tags
+            if str(tag).strip()
+        )
+
+    @staticmethod
+    def _apply_required_tags(payload: dict[str, str], required_tags: list[str]) -> None:
+        for index, tag in enumerate(WorkshopBrowserService._normalize_required_tags(required_tags)):
+            payload[f"requiredtags[{index}]"] = tag
+
+    @staticmethod
+    def _search_kind_label(search_kind: str) -> str:
+        if search_kind == "mod":
+            return "Mod"
+        if search_kind == "map":
+            return "Map"
+        if search_kind == "collection":
+            return "Collection"
+        return "Mod and collection"
 
     @staticmethod
     def _unique_list(values: Iterable[str]) -> list[str]:

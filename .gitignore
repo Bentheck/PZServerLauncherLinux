@@ -13,6 +13,7 @@
 # Python local environments and caches
 .venv/
 .pytest_cache/
+.pytest-tmp/
 __pycache__/
 *.pyc
 build/
