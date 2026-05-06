@@ -15,7 +15,7 @@ Build on Linux:
 Output:
 
 ```text
-dist/pzserverlauncherlinux_1.1.0_all.deb
+dist/pzserverlauncherlinux_1.2.0_all.deb
 ```
 
 ## Install
@@ -26,7 +26,7 @@ sudo apt-get install -y software-properties-common
 sudo dpkg --add-architecture i386
 sudo add-apt-repository -y multiverse
 sudo apt-get update
-sudo apt install ./dist/pzserverlauncherlinux_1.1.0_all.deb
+sudo apt install ./dist/pzserverlauncherlinux_1.2.0_all.deb
 ```
 
 The package:

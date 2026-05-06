@@ -55,7 +55,7 @@ sudo apt-get install -y software-properties-common
 sudo dpkg --add-architecture i386
 sudo add-apt-repository multiverse
 sudo apt-get update
-sudo apt install ./dist/pzserverlauncherlinux_1.1.0_all.deb
+sudo apt install ./dist/pzserverlauncherlinux_1.2.0_all.deb
 ```
 
 The package installs the app, installs SteamCMD, creates `pzlauncher`, adds data/log folders, and registers a disabled `systemd` service.
