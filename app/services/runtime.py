@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import JobStatus, OperationJob, RuntimeState, ServerProfile, User
 from app.services.audit import record_audit
+from app.services.config_files import ProjectZomboidConfigService
+from app.services.workshop_progress import WorkshopDownloadProgress, WorkshopDownloadProgressTracker
 from app.services.zomboid import ZomboidService
 
 
@@ -27,6 +29,7 @@ class RuntimeSnapshot:
     stopped_at: datetime | None = None
     last_exit_reason: str | None = None
     latest_log_line: str | None = None
+    workshop_download_progress: WorkshopDownloadProgress | None = None
 
 
 @dataclass
@@ -47,13 +50,20 @@ class InstallJobOptions:
 
 
 class RuntimeManager:
-    def __init__(self, session_factory: sessionmaker, zomboid_service: ZomboidService) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker,
+        zomboid_service: ZomboidService,
+        config_service: ProjectZomboidConfigService,
+    ) -> None:
         self.session_factory = session_factory
         self.zomboid_service = zomboid_service
+        self.config_service = config_service
         self._statuses: dict[str, RuntimeSnapshot] = {}
         self._logs: dict[str, deque[str]] = {}
         self._commands: dict[str, deque[str]] = {}
         self._processes: dict[str, ProcessRecord] = {}
+        self._workshop_downloads: dict[str, WorkshopDownloadProgressTracker] = {}
 
     def get_status(self, profile_id: str) -> RuntimeSnapshot:
         return self._statuses.get(profile_id, RuntimeSnapshot(profile_id=profile_id))
@@ -82,12 +92,16 @@ class RuntimeManager:
 
         snapshot = self.get_status(profile_id)
         snapshot.latest_log_line = line
+        tracker = self._workshop_downloads.get(profile_id)
+        if tracker is not None:
+            snapshot.workshop_download_progress = tracker.observe(line, utcnow())
         self._statuses[profile_id] = snapshot
 
     def clear_profile_state(self, profile_id: str) -> None:
         self._statuses.pop(profile_id, None)
         self._logs.pop(profile_id, None)
         self._commands.pop(profile_id, None)
+        self._workshop_downloads.pop(profile_id, None)
 
     async def queue_install(
         self,
@@ -111,6 +125,7 @@ class RuntimeManager:
 
         plan = self.zomboid_service.build_launch_plan(profile)
         if plan.blocked:
+            self._clear_workshop_download_session(profile.id)
             snapshot = RuntimeSnapshot(
                 profile_id=profile.id,
                 state=RuntimeState.blocked.value,
@@ -122,6 +137,7 @@ class RuntimeManager:
             self.append_log(profile.id, plan.notes)
             return snapshot
 
+        self._begin_workshop_download_session(profile)
         self.append_log(profile.id, plan.notes)
         snapshot = RuntimeSnapshot(
             profile_id=profile.id,
@@ -165,9 +181,11 @@ class RuntimeManager:
         self._statuses[profile_id] = snapshot
 
         if record is None:
+            self._clear_workshop_download_session(profile_id)
             snapshot.state = RuntimeState.stopped.value
             snapshot.stopped_at = utcnow()
             snapshot.last_exit_reason = "No managed process was running."
+            snapshot.workshop_download_progress = None
             self._statuses[profile_id] = snapshot
             return snapshot
 
@@ -253,6 +271,8 @@ class RuntimeManager:
         snapshot.stopped_at = utcnow()
         snapshot.last_exit_reason = f"Process exited with code {exit_code}."
         snapshot.state = RuntimeState.stopped.value if exit_code == 0 else RuntimeState.crashed.value
+        self._clear_workshop_download_session(profile_id)
+        snapshot.workshop_download_progress = None
         self._statuses[profile_id] = snapshot
         self._processes.pop(profile_id, None)
         self.append_log(profile_id, snapshot.last_exit_reason)
@@ -395,3 +415,26 @@ class RuntimeManager:
         timestamp = utcnow().isoformat()
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(f"[{timestamp}] {line}\n")
+
+    def _begin_workshop_download_session(self, profile: ServerProfile) -> None:
+        workshop_ids = self._configured_workshop_ids(profile)
+        tracker = WorkshopDownloadProgressTracker(workshop_ids)
+        if tracker.has_configured_items:
+            self._workshop_downloads[profile.id] = tracker
+        else:
+            self._workshop_downloads.pop(profile.id, None)
+
+        snapshot = self.get_status(profile.id)
+        snapshot.workshop_download_progress = None
+        self._statuses[profile.id] = snapshot
+
+    def _clear_workshop_download_session(self, profile_id: str) -> None:
+        self._workshop_downloads.pop(profile_id, None)
+
+    def _configured_workshop_ids(self, profile: ServerProfile) -> list[str]:
+        try:
+            settings = self.config_service.load_mods_maps(profile)
+        except OSError:
+            return []
+        workshop_ids = settings.get("workshop_ids", [])
+        return [str(item).strip() for item in workshop_ids if str(item).strip()]

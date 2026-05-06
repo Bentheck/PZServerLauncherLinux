@@ -9,7 +9,13 @@ from app.dependencies import get_current_user, get_db, get_host_settings, get_pr
 from app.models import ModsMapsDraft, ModsMapsDraftItem, OperationJob, ServerProfile, User, UserRole
 from app.security import slugify
 from app.services.audit import record_audit
-from app.services.profile_live import build_runtime_diagnostic, find_active_job, serialize_job, serialize_launch_plan
+from app.services.profile_live import (
+    build_runtime_diagnostic,
+    find_active_job,
+    serialize_job,
+    serialize_launch_plan,
+    serialize_runtime_snapshot,
+)
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -423,7 +429,7 @@ def live_profile_data(profile_id: str, request: Request, db: Session = Depends(g
             "server_name": profile.server_name,
             "branch": profile.branch,
         },
-        "runtime": snapshot.__dict__,
+        "runtime": serialize_runtime_snapshot(snapshot),
         "launch_plan": launch_plan,
         "diagnostic": build_runtime_diagnostic(snapshot, launch_plan, serialized_jobs),
         "active_job": find_active_job(serialized_jobs),

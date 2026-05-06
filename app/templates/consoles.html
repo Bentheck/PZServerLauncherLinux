@@ -217,7 +217,7 @@
             const runtime = payload.runtime || {};
             const diagnostic = payload.diagnostic || {};
             setText(root, "[data-console-state]", runtime.state || "unknown");
-            setText(root, "[data-console-latest]", runtime.latest_log_line || "Awaiting output");
+            setText(root, "[data-console-latest]", runtime.latest_display_line || runtime.latest_log_line || "Awaiting output");
             setText(root, "[data-console-status]", diagnostic.headline || diagnostic.detail || "No status available.");
             setText(root, "[data-console-activity]", runtime.last_exit_reason || diagnostic.recommended_action || "Live runtime output will appear here.");
             const logNode = root.querySelector("[data-console-log]");

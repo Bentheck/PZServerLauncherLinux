@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from app.models import JobStatus, OperationJob, RuntimeState
 from app.services.runtime import RuntimeSnapshot
+from app.services.workshop_progress import WorkshopDownloadProgress
 from app.services.zomboid import LaunchPlan
 
 ACTIVE_JOB_STATUSES = {JobStatus.running.value, JobStatus.queued.value}
@@ -13,6 +14,41 @@ def format_timestamp(value: datetime | None, empty_label: str) -> str:
     if value is None:
         return empty_label
     return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def serialize_workshop_download_progress(progress: WorkshopDownloadProgress | None) -> dict[str, object] | None:
+    if progress is None:
+        return None
+    return {
+        "current_item_index": progress.current_item_index,
+        "total_item_count": progress.total_item_count,
+        "current_workshop_id": progress.current_workshop_id,
+        "last_raw_line": progress.last_raw_line,
+        "is_complete": progress.is_complete,
+        "updated_at": progress.updated_at.isoformat(),
+        "status_label": progress.status_label,
+        "detail_label": progress.detail_label,
+    }
+
+
+def runtime_latest_display_line(snapshot: RuntimeSnapshot, empty_label: str = "Awaiting activity.") -> str:
+    if snapshot.workshop_download_progress is not None:
+        return snapshot.workshop_download_progress.detail_label
+    return snapshot.latest_log_line or empty_label
+
+
+def serialize_runtime_snapshot(snapshot: RuntimeSnapshot) -> dict[str, object]:
+    return {
+        "profile_id": snapshot.profile_id,
+        "state": snapshot.state,
+        "process_id": snapshot.process_id,
+        "started_at": snapshot.started_at.isoformat() if snapshot.started_at else None,
+        "stopped_at": snapshot.stopped_at.isoformat() if snapshot.stopped_at else None,
+        "last_exit_reason": snapshot.last_exit_reason,
+        "latest_log_line": snapshot.latest_log_line,
+        "latest_display_line": runtime_latest_display_line(snapshot),
+        "workshop_download_progress": serialize_workshop_download_progress(snapshot.workshop_download_progress),
+    }
 
 
 def job_status_tone(status: str) -> str:
@@ -87,7 +123,7 @@ def build_runtime_diagnostic(
 ) -> dict[str, object]:
     active_job = find_active_job(jobs)
     latest_failed_job = find_latest_failed_job(jobs)
-    latest_line = snapshot.latest_log_line or "Awaiting activity."
+    latest_line = runtime_latest_display_line(snapshot)
 
     if active_job is not None:
         kind_label = str(active_job["kind_label"])

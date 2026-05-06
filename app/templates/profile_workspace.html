@@ -13,7 +13,7 @@
     <div class="hero-pills">
         <span class="pill">{{ profile.default_port }}/{{ profile.udp_port }}</span>
         <span class="pill">{{ profile.preferred_memory_gb }} GB</span>
-        <span class="pill" data-runtime-latest>{{ runtime_snapshot.latest_log_line or "Awaiting activity" }}</span>
+        <span class="pill" data-runtime-latest>{{ runtime_latest_display }}</span>
     </div>
 </section>
 
@@ -137,7 +137,7 @@
             <div><span class="meta-label">Process ID</span><code data-runtime-pid>{{ runtime_snapshot.process_id or "Not running" }}</code></div>
             <div><span class="meta-label">Started</span><code data-runtime-started>{{ runtime_snapshot.started_at or "Not started yet" }}</code></div>
             <div><span class="meta-label">Stopped</span><code data-runtime-stopped>{{ runtime_snapshot.stopped_at or "Still active" }}</code></div>
-            <div><span class="meta-label">Latest Line</span><code data-runtime-latest-detail>{{ runtime_snapshot.latest_log_line or "Awaiting activity" }}</code></div>
+            <div><span class="meta-label">Latest Line</span><code data-runtime-latest-detail>{{ runtime_latest_display }}</code></div>
         </div>
     </article>
 
@@ -552,7 +552,7 @@
         <div class="detail-grid">
             <div><span class="meta-label">Install State</span><code data-launch-plan-state>{{ launch_plan_live.state_label }}</code></div>
             <div><span class="meta-label">Runtime</span><code data-runtime-state>{{ runtime_snapshot.state }}</code></div>
-            <div><span class="meta-label">Latest Line</span><code data-runtime-latest-detail>{{ runtime_snapshot.latest_log_line or "Awaiting activity" }}</code></div>
+            <div><span class="meta-label">Latest Line</span><code data-runtime-latest-detail>{{ runtime_latest_display }}</code></div>
             <div><span class="meta-label">Planner Notes</span><code data-launch-plan-notes>{{ launch_plan_live.notes }}</code></div>
         </div>
     </article>
@@ -2104,8 +2104,8 @@
             const diagnostic = payload.diagnostic || {};
             setText("[data-runtime-state]", runtime.state || "unknown");
             setText("[data-runtime-reason]", runtime.last_exit_reason || diagnostic.detail || "The process manager is ready.");
-            setText("[data-runtime-latest]", runtime.latest_log_line || "Awaiting activity");
-            setText("[data-runtime-latest-detail]", runtime.latest_log_line || "Awaiting activity");
+            setText("[data-runtime-latest]", runtime.latest_display_line || runtime.latest_log_line || "Awaiting activity");
+            setText("[data-runtime-latest-detail]", runtime.latest_display_line || runtime.latest_log_line || "Awaiting activity");
             setText("[data-runtime-pid]", runtime.process_id ?? "Not running");
             setText("[data-runtime-started]", formatTimestamp(runtime.started_at, "Not started yet"));
             setText("[data-runtime-stopped]", formatTimestamp(runtime.stopped_at, "Still active"));

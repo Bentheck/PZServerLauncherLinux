@@ -13,6 +13,7 @@ from app.models import AuditEntry, HostSettings, ModsMapsDraft, ModsMapsDraftIte
 from app.services.imports import LocalServerImportService
 from app.services.release_check import LauncherUpdateStatus
 from app.services.runtime import InstallJobOptions, RuntimeSnapshot
+from app.services.workshop_progress import WorkshopDownloadProgress
 from app.services.workshop_browser import (
     SteamWorkshopRemoteItem,
     WorkshopBrowserItem,
@@ -901,6 +902,34 @@ def test_live_profile_api_returns_runtime_logs_commands_and_jobs(client) -> None
     assert writes == [b"save\n"]
 
 
+def test_live_profile_api_returns_workshop_download_progress_display(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    runtime_manager = client.app.state.runtime_manager
+    runtime_manager._statuses[profile_id] = RuntimeSnapshot(
+        profile_id=profile_id,
+        state="starting",
+        latest_log_line="Downloading workshop content for 222222222 at 1048576 bytes.",
+        workshop_download_progress=WorkshopDownloadProgress(
+            current_item_index=2,
+            total_item_count=3,
+            current_workshop_id="222222222",
+            last_raw_line="Downloading workshop content for 222222222 at 1048576 bytes.",
+            is_complete=False,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+
+    response = client.get(f"/api/profiles/{profile_id}/live")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["runtime"]["latest_log_line"] == "Downloading workshop content for 222222222 at 1048576 bytes."
+    assert payload["runtime"]["latest_display_line"] == "Downloading workshop item 2/3 | Workshop ID 222222222"
+    assert payload["runtime"]["workshop_download_progress"]["current_item_index"] == 2
+    assert payload["runtime"]["workshop_download_progress"]["current_workshop_id"] == "222222222"
+
+
 def test_live_profile_api_surfaces_blocked_launch_guidance(client) -> None:
     bootstrap_owner(client)
     profile_id = create_profile(client)
@@ -914,6 +943,30 @@ def test_live_profile_api_surfaces_blocked_launch_guidance(client) -> None:
     assert payload["diagnostic"]["label"] == "Blocked"
     assert "Run Install or Safe Update" in payload["diagnostic"]["recommended_action"]
     assert payload["active_job"] is None
+
+
+def test_profile_overview_prefers_workshop_download_progress_in_pinned_runtime_sections(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    runtime_manager = client.app.state.runtime_manager
+    runtime_manager._statuses[profile_id] = RuntimeSnapshot(
+        profile_id=profile_id,
+        state="starting",
+        latest_log_line="Downloading workshop content for 222222222 at 1048576 bytes.",
+        workshop_download_progress=WorkshopDownloadProgress(
+            current_item_index=2,
+            total_item_count=3,
+            current_workshop_id="222222222",
+            last_raw_line="Downloading workshop content for 222222222 at 1048576 bytes.",
+            is_complete=False,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+
+    page = client.get(f"/profiles/{profile_id}/overview")
+
+    assert page.status_code == 200
+    assert "Downloading workshop item 2/3 | Workshop ID 222222222" in page.text
 
 
 def test_backup_page_exposes_scheduler_status(client) -> None:

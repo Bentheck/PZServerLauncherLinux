@@ -27,7 +27,13 @@ from app.security import InMemoryRateLimiter, ensure_password_policy, hash_passw
 from app.services.audit import record_audit
 from app.services.config_files import FlatIniDocument
 from app.services.imports import LocalServerImportService
-from app.services.profile_live import build_runtime_diagnostic, find_active_job, serialize_job, serialize_launch_plan
+from app.services.profile_live import (
+    build_runtime_diagnostic,
+    find_active_job,
+    runtime_latest_display_line,
+    serialize_job,
+    serialize_launch_plan,
+)
 from app.services.runtime import InstallJobOptions
 
 router = APIRouter(tags=["web"])
@@ -168,7 +174,7 @@ def build_profile_posture_row(request: Request, profile: ServerProfile) -> dict[
         "launch_ready": launch_ready,
         "launch_blocked": launch_plan.blocked,
         "is_modded": modded,
-        "latest_log_line": snapshot.latest_log_line or "",
+        "latest_log_line": runtime_latest_display_line(snapshot, ""),
         "last_exit_reason": snapshot.last_exit_reason or "",
     }
 
@@ -1156,6 +1162,15 @@ def build_consoles_summary(request: Request, db: Session) -> dict[str, object]:
         if snapshot is not None and snapshot.state == "running":
             running_profile_count += 1
         recent_logs = runtime_manager.recent_logs(profile.id, limit=80) if profile is not None else []
+        activity_summary = "No live runtime is attached yet."
+        if snapshot is not None:
+            activity_summary = (
+                snapshot.workshop_download_progress.detail_label
+                if snapshot.workshop_download_progress is not None
+                else snapshot.last_exit_reason
+                or runtime_latest_display_line(snapshot)
+                or "Live runtime output will appear here."
+            )
         console_slots.append(
             {
                 "slot_number": slot_number,
@@ -1167,18 +1182,12 @@ def build_consoles_summary(request: Request, db: Session) -> dict[str, object]:
                 "branch": profile.branch if profile is not None else "No profile pinned",
                 "runtime_state": snapshot.state if snapshot is not None else "idle",
                 "status_summary": (
-                    f"Runtime {snapshot.state} | latest: {snapshot.latest_log_line or 'Awaiting output'}"
+                    f"Runtime {snapshot.state} | latest: {runtime_latest_display_line(snapshot, 'Awaiting output')}"
                     if snapshot is not None
                     else "Pick a managed server from the roster to pin this slot."
                 ),
-                "activity_summary": (
-                    snapshot.last_exit_reason
-                    or snapshot.latest_log_line
-                    or "Live runtime output will appear here."
-                    if snapshot is not None
-                    else "No live runtime is attached yet."
-                ),
-                "latest_log_line": snapshot.latest_log_line if snapshot is not None else "",
+                "activity_summary": activity_summary,
+                "latest_log_line": runtime_latest_display_line(snapshot, "") if snapshot is not None else "",
                 "log_text": "\n".join(recent_logs) if recent_logs else "No output yet.",
                 "live_url": f"/api/profiles/{profile.id}/live" if profile is not None else "",
                 "can_send_commands": snapshot is not None and snapshot.state == "running",
@@ -1204,7 +1213,7 @@ def build_consoles_summary(request: Request, db: Session) -> dict[str, object]:
                 "display_name": profile.display_name,
                 "branch": profile.branch,
                 "runtime_state": snapshot.state,
-                "latest_log_line": snapshot.latest_log_line or "No recent log line yet.",
+                "latest_log_line": runtime_latest_display_line(snapshot, "No recent log line yet."),
                 "assigned_slot_number": assigned_slot_number,
                 "assignment_label": assignment_label,
             }
@@ -1699,6 +1708,7 @@ def _profile_workspace(
         profile_live_enabled=True,
         profile_live_api_url=f"/api/profiles/{profile.id}/live",
         recent_commands=runtime_manager.recent_commands(profile.id, limit=12),
+        runtime_latest_display=runtime_latest_display_line(runtime_snapshot),
         quick_runtime_commands=QUICK_RUNTIME_COMMANDS,
         branch_options=BRANCH_OPTIONS,
         profile_install_is_managed=request.app.state.zomboid_service.is_managed_install_directory(profile),

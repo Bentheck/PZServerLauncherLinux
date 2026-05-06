@@ -51,7 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     workshop_browser_service = WorkshopBrowserService(config_service)
     sandbox_service = ProjectZomboidSandboxService(app_settings)
     release_check_service = ReleaseCheckService()
-    runtime_manager = RuntimeManager(session_factory, zomboid_service)
+    runtime_manager = RuntimeManager(session_factory, zomboid_service, config_service)
     backup_scheduler = BackupScheduler(session_factory, zomboid_service, runtime_manager)
 
     @asynccontextmanager
