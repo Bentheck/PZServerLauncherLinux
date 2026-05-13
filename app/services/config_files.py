@@ -107,6 +107,20 @@ def _join_multiline_csv(value: str | None) -> str:
     return ",".join(pieces)
 
 
+def _set_ini_value_unless_missing_default(
+    document: "FlatIniDocument",
+    key: str,
+    value: str,
+    *,
+    missing_default: str = "",
+) -> None:
+    existing = document.get(key)
+    if existing is None and value.strip() == missing_default.strip():
+        return
+
+    document.set(key, value)
+
+
 def _decode_pz_multiline(value: str | None) -> str:
     if not value:
         return ""
@@ -423,45 +437,50 @@ class ProjectZomboidConfigService:
         submitted_rcon_password = str(values["rcon_password"]).strip()
         submitted_admin_password = str(values["admin_password"]).strip()
 
-        doc.set("Password", submitted_password)
-        doc.set("RCONPassword", submitted_rcon_password if submitted_rcon_password else existing_rcon_password)
+        _set_ini_value_unless_missing_default(doc, "Password", submitted_password, missing_default="")
+        _set_ini_value_unless_missing_default(
+            doc,
+            "RCONPassword",
+            submitted_rcon_password if submitted_rcon_password else existing_rcon_password,
+            missing_default="",
+        )
         self._save_launcher_secrets(
             profile,
             admin_username=normalized_text("admin_username"),
             admin_password=submitted_admin_password if submitted_admin_password else existing_admin_password,
         )
-        doc.set("BindIP", normalized_text("bind_ip"))
-        doc.set("RCONPort", normalized_text("rcon_port", "27015"))
-        doc.set("Tag", normalized_text("server_tag"))
-        doc.set("ResetID", normalized_text("reset_id", "0"))
-        doc.set("UPnP", _bool_to_ini(bool(values["upnp"])))
-        doc.set("AutoCreateUserInWhiteList", _bool_to_ini(bool(values["auto_create_user_in_whitelist"])))
-        doc.set("DoLuaChecksum", _bool_to_ini(bool(values["do_lua_checksum"])))
-        doc.set("PingLimit", normalized_text("ping_limit", "250"))
-        doc.set("SteamVAC", _bool_to_ini(bool(values["steam_vac"])))
-        doc.set("KickFastPlayers", _bool_to_ini(bool(values["kick_fast_players"])))
-        doc.set("DenyLoginOnOverloadedServer", _bool_to_ini(bool(values["deny_login_overloaded"])))
-        doc.set("ClientCommandFilter", normalized_text("client_command_filter"))
-        doc.set("SaveWorldEveryMinutes", normalized_text("save_world_every_minutes", "0"))
-        doc.set("DisplayUserName", _bool_to_ini(bool(values["display_user_name"])))
-        doc.set("ShowFirstAndLastName", _bool_to_ini(bool(values["show_first_and_last_name"])))
-        doc.set("SafetySystem", _bool_to_ini(bool(values["safety_system"])))
-        doc.set("ShowSafety", _bool_to_ini(bool(values["show_safety"])))
-        doc.set("SafetyToggleTimer", normalized_text("safety_toggle_timer", "100"))
-        doc.set("SafetyCooldownTimer", normalized_text("safety_cooldown_timer", "120"))
-        doc.set("MaxAccountsPerUser", normalized_text("max_accounts_per_user", "0"))
-        doc.set("AllowNonAsciiUsername", _bool_to_ini(bool(values["allow_non_ascii_username"])))
-        doc.set("PlayerSaveOnDamage", _bool_to_ini(bool(values["player_save_on_damage"])))
-        doc.set("MouseOverToSeeDisplayName", _bool_to_ini(bool(values["mouse_over_display_name"])))
-        doc.set("HidePlayersBehindYou", _bool_to_ini(bool(values["hide_players_behind_you"])))
-        doc.set("PlayerBumpPlayer", _bool_to_ini(bool(values["player_bump_player"])))
-        doc.set("MapRemotePlayerVisibility", normalized_text("map_remote_player_visibility", "1"))
-        doc.set("UseTCPForMapTraffic", _bool_to_ini(bool(values["use_tcp_for_map_traffic"])))
-        doc.set("VoiceEnable", _bool_to_ini(bool(values["voice_enable"])))
-        doc.set("Voice3D", _bool_to_ini(bool(values["voice_3d"])))
-        doc.set("VoiceMinDistance", normalized_text("voice_min_distance", "10.0"))
-        doc.set("VoiceMaxDistance", normalized_text("voice_max_distance", "100.0"))
-        doc.set("MinutesPerPage", normalized_text("minutes_per_page", "1"))
+        _set_ini_value_unless_missing_default(doc, "BindIP", normalized_text("bind_ip"), missing_default=profile.bind_ip or "")
+        _set_ini_value_unless_missing_default(doc, "RCONPort", normalized_text("rcon_port", "27015"), missing_default="27015")
+        _set_ini_value_unless_missing_default(doc, "Tag", normalized_text("server_tag"), missing_default="")
+        _set_ini_value_unless_missing_default(doc, "ResetID", normalized_text("reset_id", "0"), missing_default="0")
+        _set_ini_value_unless_missing_default(doc, "UPnP", _bool_to_ini(bool(values["upnp"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "AutoCreateUserInWhiteList", _bool_to_ini(bool(values["auto_create_user_in_whitelist"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "DoLuaChecksum", _bool_to_ini(bool(values["do_lua_checksum"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "PingLimit", normalized_text("ping_limit", "250"), missing_default="250")
+        _set_ini_value_unless_missing_default(doc, "SteamVAC", _bool_to_ini(bool(values["steam_vac"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "KickFastPlayers", _bool_to_ini(bool(values["kick_fast_players"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "DenyLoginOnOverloadedServer", _bool_to_ini(bool(values["deny_login_overloaded"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "ClientCommandFilter", normalized_text("client_command_filter"), missing_default="")
+        _set_ini_value_unless_missing_default(doc, "SaveWorldEveryMinutes", normalized_text("save_world_every_minutes", "0"), missing_default="0")
+        _set_ini_value_unless_missing_default(doc, "DisplayUserName", _bool_to_ini(bool(values["display_user_name"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "ShowFirstAndLastName", _bool_to_ini(bool(values["show_first_and_last_name"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "SafetySystem", _bool_to_ini(bool(values["safety_system"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "ShowSafety", _bool_to_ini(bool(values["show_safety"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "SafetyToggleTimer", normalized_text("safety_toggle_timer", "100"), missing_default="100")
+        _set_ini_value_unless_missing_default(doc, "SafetyCooldownTimer", normalized_text("safety_cooldown_timer", "120"), missing_default="120")
+        _set_ini_value_unless_missing_default(doc, "MaxAccountsPerUser", normalized_text("max_accounts_per_user", "0"), missing_default="0")
+        _set_ini_value_unless_missing_default(doc, "AllowNonAsciiUsername", _bool_to_ini(bool(values["allow_non_ascii_username"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "PlayerSaveOnDamage", _bool_to_ini(bool(values["player_save_on_damage"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "MouseOverToSeeDisplayName", _bool_to_ini(bool(values["mouse_over_display_name"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "HidePlayersBehindYou", _bool_to_ini(bool(values["hide_players_behind_you"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "PlayerBumpPlayer", _bool_to_ini(bool(values["player_bump_player"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "MapRemotePlayerVisibility", normalized_text("map_remote_player_visibility", "1"), missing_default="1")
+        _set_ini_value_unless_missing_default(doc, "UseTCPForMapTraffic", _bool_to_ini(bool(values["use_tcp_for_map_traffic"])), missing_default="false")
+        _set_ini_value_unless_missing_default(doc, "VoiceEnable", _bool_to_ini(bool(values["voice_enable"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "Voice3D", _bool_to_ini(bool(values["voice_3d"])), missing_default="true")
+        _set_ini_value_unless_missing_default(doc, "VoiceMinDistance", normalized_text("voice_min_distance", "10.0"), missing_default="10.0")
+        _set_ini_value_unless_missing_default(doc, "VoiceMaxDistance", normalized_text("voice_max_distance", "100.0"), missing_default="100.0")
+        _set_ini_value_unless_missing_default(doc, "MinutesPerPage", normalized_text("minutes_per_page", "1"), missing_default="1")
         profile.use_steam = bool(values["steam_mode"])
         profile.bind_ip = normalized_text("bind_ip", "0.0.0.0")
         return self._save_ini(profile, doc)
@@ -885,7 +904,6 @@ class ProjectZomboidConfigService:
                 "ResetID=0",
                 "UPnP=false",
                 "AutoCreateUserInWhiteList=false",
-                "DoLuaChecksum=true",
                 "PingLimit=250",
                 "SteamVAC=true",
                 "KickFastPlayers=false",

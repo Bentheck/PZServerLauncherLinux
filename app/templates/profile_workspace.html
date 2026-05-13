@@ -1232,6 +1232,17 @@
             >
                 {% if preview_item.kind == "collection" %}Add Collection To Editor{% else %}Add To Editor{% endif %}
             </button>
+            <button
+                class="button button-subtle"
+                type="button"
+                data-remove-pack
+                data-title="{{ preview_item.title }}"
+                data-workshop-ids="{% if preview_item.kind == 'collection' and workshop_browser_preview.collection_children %}{{ workshop_browser_preview.collection_children|map(attribute='workshop_id')|list|join('||') }}{% else %}{{ preview_item.workshop_id }}{% endif %}"
+                data-mods="{{ preview_item.mod_ids|join('||') }}"
+                data-maps="{{ preview_item.map_ids|join('||') }}"
+            >
+                Remove from Editor
+            </button>
             <span class="mods-add-confirmation" data-mods-add-confirmation aria-live="polite"></span>
         </div>
         {% else %}
@@ -1251,6 +1262,12 @@
             </div>
         </div>
         <p class="empty">Select a mod to inspect its Workshop entry. A checkmark means it is currently active and will be added to the mod list for the server.</p>
+        <label>
+            <span>Filter the editor</span>
+            <input type="search" data-mod-editor-filter placeholder="Filter by Workshop display name, mod ID, or Workshop ID">
+        </label>
+        <p class="empty" data-mod-editor-filter-summary>Filter the live editor by Workshop display name, mod ID, or Workshop ID.</p>
+        <p class="empty" data-mod-editor-empty-filter hidden>No mod rows match this filter.</p>
         <div class="card-stack mods-name-list">
             {% if mods_maps_editor_catalog %}
                 <div class="mods-table-header">
@@ -1270,6 +1287,7 @@
                     data-mod-id="{{ item.mod_id }}"
                     data-mod-title="{{ item.title }}"
                     data-workshop-id="{{ item.workshop_id }}"
+                    data-search-text="{{ item.title }} {{ item.mod_id }} {{ item.workshop_id }} {{ item.map_ids|join(' ') }} {{ item.dependencies|join(' ') }}"
                     data-map-ids="{{ item.map_ids|join('||') }}"
                     data-mod-dependencies="{{ item.dependencies|join('||') }}"
                     data-installed="{{ 'yes' if item.is_installed else 'no' }}"
@@ -2251,6 +2269,10 @@
 
     const detailButtons = Array.from(document.querySelectorAll("[data-mod-detail-button]"));
     let selectedModDetailButton = null;
+    const modEditorFilterInput = document.querySelector("[data-mod-editor-filter]");
+    const modEditorFilterSummary = document.querySelector("[data-mod-editor-filter-summary]");
+    const modEditorFilterEmpty = document.querySelector("[data-mod-editor-empty-filter]");
+    const modTableHeader = document.querySelector(".mods-table-header");
     const detailTitle = document.querySelector("[data-mod-detail-title]");
     const detailPlaceholder = document.querySelector("[data-mod-detail-placeholder]");
     const detailBody = document.querySelector("[data-mod-detail-body]");
@@ -2285,6 +2307,7 @@
             node.textContent = value;
         }
     };
+    const modSearchText = (button) => ((button.dataset.searchText || `${button.dataset.modTitle || ""} ${button.dataset.modId || ""} ${button.dataset.workshopId || ""}`).trim().toLowerCase());
     const resetWorkshopPreview = ({ title, message }) => {
         if (detailPreviewCard) {
             detailPreviewCard.hidden = false;
@@ -2400,10 +2423,59 @@
             detailSteamLink.href = workshopId ? `https://steamcommunity.com/sharedfiles/filedetails/?id=${encodeURIComponent(workshopId)}` : "#";
         }
     };
+    const clearSelectedModDetail = () => {
+        selectedModDetailButton = null;
+        detailButtons.forEach((item) => item.classList.remove("selected"));
+        if (detailTitle) {
+            detailTitle.textContent = "Select a mod";
+        }
+        if (detailPlaceholder) {
+            detailPlaceholder.hidden = false;
+        }
+        if (detailBody) {
+            detailBody.hidden = true;
+        }
+        if (detailActions) {
+            detailActions.hidden = true;
+        }
+        resetWorkshopPreview({ title: "", message: "" });
+    };
+    const applyModEditorFilter = () => {
+        const query = (modEditorFilterInput?.value || "").trim().toLowerCase();
+        let visibleCount = 0;
+        detailButtons.forEach((button) => {
+            const matches = !query || modSearchText(button).includes(query);
+            button.hidden = !matches;
+            if (matches) {
+                visibleCount += 1;
+            }
+        });
+        if (modTableHeader) {
+            modTableHeader.hidden = visibleCount === 0;
+        }
+        if (modEditorFilterSummary) {
+            modEditorFilterSummary.textContent = query
+                ? `${visibleCount} mod row(s) match "${modEditorFilterInput?.value?.trim() || ""}".`
+                : "Filter the live editor by Workshop display name, mod ID, or Workshop ID.";
+        }
+        if (modEditorFilterEmpty) {
+            modEditorFilterEmpty.hidden = !(query && visibleCount === 0);
+        }
+        if (selectedModDetailButton && selectedModDetailButton.hidden) {
+            const nextVisibleButton = detailButtons.find((button) => !button.hidden);
+            if (nextVisibleButton) {
+                selectModDetail(nextVisibleButton);
+            } else {
+                clearSelectedModDetail();
+            }
+        }
+    };
     detailButtons.forEach((button) => button.addEventListener("click", () => selectModDetail(button)));
     if (detailButtons.length) {
         selectModDetail(detailButtons[0]);
     }
+    modEditorFilterInput?.addEventListener("input", applyModEditorFilter);
+    applyModEditorFilter();
 
     const fieldMap = {
         workshop: form.querySelector('textarea[name="workshop_ids_text"]'),
@@ -2555,6 +2627,7 @@
             }
         });
         syncModCardOrderFromFields();
+        applyModEditorFilter();
     };
 
     const moveModInLoadOrder = (modId, direction) => {
@@ -2684,23 +2757,13 @@
         if (selectedModDetailButton === button) {
             selectedModDetailButton = null;
             if (detailButtons.length) {
-                selectModDetail(detailButtons[0]);
+                const nextVisibleButton = detailButtons.find((item) => !item.hidden) || detailButtons[0];
+                selectModDetail(nextVisibleButton);
             } else {
-                if (detailTitle) {
-                    detailTitle.textContent = "Select a mod";
-                }
-                if (detailPlaceholder) {
-                    detailPlaceholder.hidden = false;
-                }
-                if (detailBody) {
-                    detailBody.hidden = true;
-                }
-                if (detailActions) {
-                    detailActions.hidden = true;
-                }
-                resetWorkshopPreview({ title: "", message: "" });
+                clearSelectedModDetail();
             }
         }
+        applyModEditorFilter();
     };
 
     const forgetMapRow = (button) => {
@@ -3037,6 +3100,78 @@
                     showAddConfirmation("Added to editor. Open Live Editor to refresh the list.");
                 } else {
                     showAddConfirmation("Could not save the editor draft. Try again.");
+                }
+            } finally {
+                button.disabled = false;
+                button.removeAttribute("aria-busy");
+                button.textContent = originalLabel;
+            }
+        });
+    });
+
+    document.querySelectorAll("[data-remove-pack]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const originalLabel = button.textContent;
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            button.textContent = "Removing...";
+            try {
+                const workshopItems = splitAttributeList(button.getAttribute("data-workshop-ids"))
+                    .concat(splitAttributeList(button.getAttribute("data-workshop-id")));
+                const modItems = splitAttributeList(button.getAttribute("data-mods"));
+                const mapItems = splitAttributeList(button.getAttribute("data-maps"));
+                let removedAnything = false;
+
+                if (modItems.length) {
+                    const modLookup = new Set(modItems.map((item) => item.toLowerCase()));
+                    const currentMods = normalizeList(fieldMap.mod?.value || "");
+                    const nextMods = currentMods.filter((item) => !modLookup.has(item.toLowerCase()));
+                    if (nextMods.length !== currentMods.length) {
+                        removedAnything = true;
+                        updateField("mod", nextMods);
+                    }
+                    detailButtons.slice().forEach((detailButton) => {
+                        if (!modLookup.has((detailButton.dataset.modId || "").toLowerCase())) {
+                            return;
+                        }
+                        forgetDraftItem(detailButton.dataset.modId || "");
+                        forgetModButton(detailButton);
+                    });
+                }
+
+                if (mapItems.length) {
+                    const mapLookup = new Set(mapItems.map((item) => item.toLowerCase()));
+                    const currentMaps = normalizeList(fieldMap.map?.value || "");
+                    const nextMaps = currentMaps.filter((item) => !mapLookup.has(item.toLowerCase()));
+                    if (nextMaps.length !== currentMaps.length) {
+                        removedAnything = true;
+                        updateField("map", nextMaps);
+                    }
+                    mapRows.slice().forEach((mapRow) => {
+                        if (!mapLookup.has((mapRow.dataset.mapId || "").toLowerCase())) {
+                            return;
+                        }
+                        forgetMapRow(mapRow);
+                    });
+                }
+
+                workshopItems.forEach((workshopId) => {
+                    const beforeCount = normalizeList(fieldMap.workshop?.value || "").length;
+                    removeWorkshopIfUnused(workshopId);
+                    if (normalizeList(fieldMap.workshop?.value || "").length !== beforeCount) {
+                        removedAnything = true;
+                    }
+                });
+
+                syncModCardsFromFields();
+                syncMapRowsFromFields();
+                const saved = await saveDraftNow();
+                if (removedAnything && saved) {
+                    showAddConfirmation("Removed from editor.");
+                } else if (removedAnything) {
+                    showAddConfirmation("The editor changed, but the draft could not be saved yet.");
+                } else {
+                    showAddConfirmation("That result is not currently in the editor.");
                 }
             } finally {
                 button.disabled = false;

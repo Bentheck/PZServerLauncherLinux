@@ -1304,7 +1304,7 @@ def test_network_settings_and_write_only_passwords_persist(client) -> None:
     assert "RCONPort=28015" in content
     assert "Tag=PVP" in content
     assert "ResetID=9" in content
-    assert "DoLuaChecksum=true" in content
+    assert "DoLuaChecksum=" not in content
     assert "PingLimit=180" in content
     assert "KickFastPlayers=false" in content
     assert "ClientCommandFilter=trusted-only" in content
@@ -1318,6 +1318,83 @@ def test_network_settings_and_write_only_passwords_persist(client) -> None:
     assert "UseTCPForMapTraffic=false" in content
     assert "Voice3D=false" in content
     assert "MinutesPerPage=5" in content
+
+
+def test_network_settings_preserve_missing_do_lua_checksum_when_inherited_value_is_saved(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    profile = get_profile(client, profile_id)
+    client.app.state.config_service.ensure_profile_files(profile)
+    ini_path = Path(profile.cache_directory) / "Server" / f"{profile.server_name}.ini"
+    ini_path.write_text(
+        "\n".join(
+            [
+                "PublicName=Main Server",
+                "BindIP=0.0.0.0",
+                "RCONPort=27015",
+                "PingLimit=250",
+                "SteamVAC=true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    values = dict(client.app.state.config_service.load_network_settings(profile))
+    values["server_password"] = ""
+    values["rcon_password"] = ""
+    values["admin_password"] = ""
+
+    client.app.state.config_service.save_network_settings(profile, values)
+
+    content = ini_path.read_text(encoding="utf-8")
+    assert "DoLuaChecksum=" not in content
+
+
+def test_network_settings_write_do_lua_checksum_false_when_admin_unchecks_inherited_value(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    profile = get_profile(client, profile_id)
+    client.app.state.config_service.ensure_profile_files(profile)
+    ini_path = Path(profile.cache_directory) / "Server" / f"{profile.server_name}.ini"
+    ini_path.write_text(
+        "\n".join(
+            [
+                "PublicName=Main Server",
+                "BindIP=0.0.0.0",
+                "RCONPort=27015",
+                "PingLimit=250",
+                "SteamVAC=true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    values = dict(client.app.state.config_service.load_network_settings(profile))
+    values["server_password"] = ""
+    values["rcon_password"] = ""
+    values["admin_password"] = ""
+    values["do_lua_checksum"] = False
+
+    client.app.state.config_service.save_network_settings(profile, values)
+
+    content = ini_path.read_text(encoding="utf-8")
+    assert "DoLuaChecksum=false" in content
+
+
+def test_generated_default_ini_does_not_force_do_lua_checksum(client) -> None:
+    bootstrap_owner(client)
+    profile_id = create_profile(client)
+    profile = get_profile(client, profile_id)
+    ini_path = Path(profile.cache_directory) / "Server" / f"{profile.server_name}.ini"
+    if ini_path.exists():
+        ini_path.unlink()
+
+    client.app.state.config_service.ensure_profile_files(profile)
+
+    content = ini_path.read_text(encoding="utf-8")
+    assert "DoLuaChecksum=" not in content
 
 
 def test_runtime_compacts_known_project_zomboid_warning_noise(client) -> None:
@@ -1751,6 +1828,10 @@ def test_mods_maps_page_exposes_workshop_browser_preview_and_diagnostics(client)
     assert "Fancy Pack" in page.text
     assert "FancyMod" in page.text
     assert "MapOne" in page.text
+    assert "Filter the editor" in page.text
+    assert "Remove from Editor" in page.text
+    assert "data-mod-editor-filter" in page.text
+    assert "data-remove-pack" in page.text
     assert "Queue Whole Pack" not in page.text
 
 
@@ -2144,11 +2225,13 @@ def test_mods_maps_page_exposes_steam_search_and_collection_preview(client) -> N
     assert page.text.count("checked") >= 2
     assert "Mega Collection" in page.text
     assert "Add Collection To Editor" in page.text
+    assert "Remove from Editor" in page.text
     assert "Add Mod IDs And Workshop" not in page.text
     assert "Add Maps And Workshop" not in page.text
     assert "Child One" in page.text
     assert "Child Two" in page.text
     assert 'data-workshop-ids="111||222"' in page.text
+    assert 'data-remove-pack' in page.text
     assert 'data-queue-mods' not in page.text
     assert 'data-queue-maps' not in page.text
 
